@@ -22,6 +22,10 @@ REPO = Path(__file__).resolve().parents[2]
 PREPARE_PATH = REPO / "scripts" / "prepare_dataset_v2.py"
 MODEL_PATH = REPO / "ml" / "models" / MODEL_NAME
 
+# Сколько месяцев дефицита за год считаем хроническими: дальше прогноз
+# модели построен на цензурированной истории и опираться на него нельзя.
+CHRONIC_STOCKOUT_MONTHS = 4
+
 CABLE = re.compile(r"кабел|utp|ftp|витая|itk|провод", re.I)
 AUTO = re.compile(r"автомат|ва47|узо|выкл|контактор|пускател|диф", re.I)
 LIGHT = re.compile(r"свет|дпа|дба|led|ламп|светиль", re.I)
@@ -114,7 +118,9 @@ def _round_moq(quantity: float, moq: float) -> int:
 
 
 def _risk(forecast: float, available: float) -> str:
-    if forecast <= 0:
+    # Прогноз меньше единицы — численный шум, а не спрос. Без этого порога
+    # деление нуля остатка на 0.04 прогноза давало «Критично».
+    if forecast < 1:
         return "safe"
     coverage = available / forecast
     if coverage < 0.5:
@@ -152,6 +158,76 @@ def monthly_series(frame: pd.DataFrame, codes: set[str], months: int = 12) -> di
     return out
 
 
+def _build_anomalies(data_dir: Path, history: pd.DataFrame, art_of: dict, limit: int = 25) -> list[dict]:
+    """Разовые крупные отгрузки.
+
+    MAD-детектор в prepare_dataset_v2 помечает аномальные месяцы (sku, month).
+    Сам документ виден только в «Динамике продаж», поэтому для каждого такого
+    месяца ищем накладную, которая его и раздула. Без файла динамики отдаём
+    месяц без номера — расчёт от этого не зависит.
+    """
+    flagged = history[history["outlier_flag"] == 1]
+    if flagged.empty:
+        return []
+    flagged = flagged.nlargest(limit * 3, "sales_positive")
+
+    path = _find(data_dir, "динамика")
+    docs: dict[tuple[str, pd.Period], tuple[str, float, str]] = {}
+    if path is not None:
+        try:
+            dyn = pd.read_excel(path)
+            dyn = dyn[dyn["Документ"].astype(str).str.startswith("Расходная")]
+            dyn["Количество"] = pd.to_numeric(dyn["Количество"], errors="coerce")
+            dyn = dyn[dyn["Количество"] > 0]
+            dyn["Дата"] = pd.to_datetime(dyn["Дата"], errors="coerce", dayfirst=True)
+            dyn = dyn.dropna(subset=["Дата"])
+            dyn["_k"] = dyn["Код"].astype(str).str.strip()
+            dyn["_m"] = dyn["Дата"].dt.to_period("M")
+            top = dyn.sort_values("Количество", ascending=False).groupby(["_k", "_m"]).head(1)
+            for key, number, qty, when in zip(
+                zip(top["_k"], top["_m"], strict=True),
+                top["Номер"],
+                top["Количество"],
+                top["Дата"],
+                strict=True,
+            ):
+                docs[key] = (str(number), float(qty), when.strftime("%d.%m.%Y"))
+        except (KeyError, ValueError):
+            docs = {}
+
+    out = []
+    for row in flagged.itertuples(index=False):
+        sku = str(row.sku)
+        month = pd.Timestamp(row.month)
+        doc = docs.get((sku, month.to_period("M")))
+        qty = _num(row.sales_positive)
+        base = _num(row.sales_clean)
+        out.append({
+            "date": month.strftime("%m.%Y"),
+            "invoice": doc[0] if doc else "—",
+            "article": art_of.get(sku, sku),
+            "code": sku,
+            "name": " ".join(str(row.product_name).split()),
+            # qty и median — оба за месяц, иначе колонки несопоставимы.
+            # Документ идёт отдельной строкой в пояснении.
+            "qty": round(qty, 1),
+            "median": round(base, 1),
+            "reason": (
+                f"Порог {round(_num(row.outlier_threshold))} (медиана + 6×MAD) превышен."
+                + (
+                    f" Основная отгрузка — накладная {doc[0]} от {doc[2]}"
+                    f" на {round(doc[1])}."
+                    if doc
+                    else ""
+                )
+                + " В регулярный спрос вместо месяца взята медиана."
+            ),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
     data_dir = Path(data_dir)
     if not data_dir.is_dir():
@@ -174,11 +250,55 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
     model.load_model(MODEL_PATH)
     latest["forecast"] = np.clip(model.predict(features), 0, None)
 
+    history = frame.sort_values("month")
+    stockout_12 = history.groupby("sku").tail(12).groupby("sku")["stockout_flag_v2"].sum()
+
+    # Хронический дефицит.
+    #
+    # correct_stockouts() в prepare_dataset_v2 оценивает упущенный спрос
+    # скользящей медианой той же цензурированной серии. Если товара нет
+    # несколько месяцев подряд, опора обнуляется вместе с продажами,
+    # поправка вырождается в ноль, и модель предсказывает ноль — именно
+    # для позиций, которые нужнее всего пополнить (must-have №3).
+    #
+    # Опору берём вне окна дефицита: медиану месяцев, когда товар на
+    # складе был. Модель не трогаем — правим только там, где она заведомо
+    # смотрит на цензурированную историю.
+    in_stock_median = (
+        history[history["stockout_flag_v2"] == 0]
+        .groupby("sku")["demand_adjusted"]
+        .median()
+    )
+
+    # Второй ярус. Часть артикулов продаётся, но на балансе склада не была
+    # ни разу — прямая поставка или расхождение ключа между выгрузками.
+    # Для них stockout_flag ничего не значит, и опираться надо на факт
+    # продаж, а не на наличие.
+    sold = history[history["sales_positive"] > 0]
+    sales_median = sold.groupby("sku")["sales_positive"].median()
+
+    chronic = latest["sku"].map(stockout_12).fillna(0) >= CHRONIC_STOCKOUT_MONTHS
+    from_stock = latest["sku"].map(in_stock_median).clip(lower=0)
+    from_sales = latest["sku"].map(sales_median).clip(lower=0)
+    fallback = from_stock.fillna(from_sales).fillna(0.0)
+    source = np.where(from_stock.notna(), "instock_median", "sales_median")
+
+    use_fallback = chronic & (latest["forecast"] < fallback)
+    latest["forecast"] = np.where(use_fallback, fallback, latest["forecast"])
+    latest["forecast_source"] = np.where(use_fallback, source, "model")
+
+    # Прогноза нет и опереться не на что — количество не выдумываем.
+    # Позиция останется в unverified: закупщик разберёт её руками.
+    latest.loc[latest["forecast"] < 1, "forecast"] = 0.0
+
     latest = latest.merge(_load_moq(data_dir), on="sku", how="left")
     latest = latest.merge(_load_incoming(data_dir), on="sku", how="left")
     latest["incoming"] = latest["incoming"].fillna(0).clip(lower=0)
     latest["stock"] = pd.to_numeric(latest["stock"], errors="coerce").fillna(0).clip(lower=0)
     latest["safety_stock"] = latest["rolling_std_6"].fillna(0).clip(lower=0) * 0.5
+    # Страховой запас сам по себе заказ не обосновывает: без прогноза
+    # получались сотни строк с количеством из одной сигмы.
+    latest["safety_stock"] = latest["safety_stock"].where(latest["forecast"] >= 1, 0.0)
     latest["net"] = (latest["forecast"] + latest["safety_stock"] - latest["stock"] - latest["incoming"]).clip(lower=0)
     latest["recommended"] = [
         _round_moq(q, m) for q, m in zip(latest["net"], latest["moq"], strict=True)
@@ -188,9 +308,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         _risk(f, a) for f, a in zip(latest["forecast"], latest["available"], strict=True)
     ]
 
-    history = frame.sort_values("month")
     months_used = history.groupby("sku").size()
-    stockout_12 = history.groupby("sku").tail(12).groupby("sku")["stockout_flag_v2"].sum()
     stock_known = history.groupby("sku")["stock"].apply(lambda s: bool(s.notna().any()))
     ever_stocked = history.groupby("sku")["stock"].max().fillna(0) > 0
 
@@ -202,6 +320,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         sku = str(row.sku)
         name = " ".join(str(row.product_name).split())
         forecast = _num(row.forecast)
+        from_model = getattr(row, "forecast_source", "model") == "model"
         stock = _num(row.stock)
         incoming = _num(row.incoming)
         safety = _num(row.safety_stock)
@@ -226,6 +345,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
             "daysLeft": days_left,
             "inTransit": round(incoming, 1),
             "inTransitEta": None,
+            "forecastSource": "model" if from_model else "instock_median",
             "demandMonth": round(forecast, 1),
             "demandWeek": round(forecast / 4.345, 1),
             "forecast8w": round(forecast, 1),
@@ -235,7 +355,15 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
             "urgency": row.urgency,
             "category": _classify(name),
             "steps": [
-                {"key": "base", "label": "Прогноз CatBoost на следующий месяц", "value": round(forecast, 1)},
+                {
+                    "key": "base",
+                    "label": (
+                        "Прогноз CatBoost на следующий месяц"
+                        if from_model
+                        else "Спрос по месяцам с наличием (модель занижена из-за дефицита)"
+                    ),
+                    "value": round(forecast, 1),
+                },
                 {"key": "season", "label": "Страховой запас (0.5 × σ за 6 мес.)", "delta": round(safety, 1)},
                 {"key": "stock", "label": "Текущий остаток", "delta": round(-stock, 1)},
                 {"key": "transit", "label": "В пути", "delta": round(-incoming, 1)},
@@ -272,6 +400,9 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         for name, bucket in sorted(cat_map.items(), key=lambda kv: -kv[1]["order"])
     ]
 
+    art_of = {str(row.sku): str(row.article) for row in latest.itertuples(index=False)}
+    anomalies = _build_anomalies(data_dir, history, art_of)
+
     inbound = latest[latest["incoming"] > 0]
     featured = (alerts or to_order or lines)[0]["article"]
 
@@ -307,7 +438,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         "skuSeries": monthly_series(history, {item["code"] for item in lines}),
         "lines": to_order,
         "alerts": alerts,
-        "anomalies": [],
+        "anomalies": anomalies,
         "suppliers": [{
             "name": supplier,
             "role": "Прогноз CatBoost по загруженной выгрузке",
