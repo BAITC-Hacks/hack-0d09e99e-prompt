@@ -1,11 +1,13 @@
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readdir, rm, writeFile } from "fs/promises";
 import { promisify } from "util";
 import { NextResponse } from "next/server";
 import path from "path";
 import { readWorkspace, UPLOAD_DIR, WORKSPACE_PATH } from "@/data/workspace";
+import { safeName } from "./upload-name";
 
 const exec = promisify(execFile);
+
 
 async function importViaApi(req: Request, api: string) {
   const demo = new URL(req.url).searchParams.get("demo") === "1";
@@ -17,7 +19,14 @@ async function importViaApi(req: Request, api: string) {
       return NextResponse.json({ error: "Загрузите выгрузки 1С (xlsx)" }, { status: 400 });
     }
     body = new FormData();
-    for (const file of files) body.append("files", file, file.name);
+    for (const file of files) {
+      const name = safeName(file.name);
+      if (!name) continue;
+      body.append("files", file, name);
+    }
+    if (!body.getAll("files").length) {
+      return NextResponse.json({ error: "Принимаются только файлы .xlsx / .xls" }, { status: 400 });
+    }
   }
   try {
     const res = await fetch(`${api}/v1/workspace${demo ? "?demo=1" : ""}`, { method: "POST", body });
@@ -52,9 +61,21 @@ export async function importWorkspace(req: Request) {
       return NextResponse.json({ error: "Загрузите выгрузки 1С (xlsx)" }, { status: 400 });
     }
     await mkdir(UPLOAD_DIR, { recursive: true });
+    // Папка — вход следующего расчёта. Файлы прошлой загрузки оставлять нельзя:
+    // движок прочитает их вместе с новыми и посчитает смесь двух выгрузок.
+    for (const stale of await readdir(UPLOAD_DIR)) {
+      await rm(path.join(UPLOAD_DIR, stale), { force: true, recursive: true });
+    }
+    let written = 0;
     for (const file of files) {
+      const name = safeName(file.name);
+      if (!name) continue;
       const buf = Buffer.from(await file.arrayBuffer());
-      await writeFile(path.join(UPLOAD_DIR, file.name), buf);
+      await writeFile(path.join(UPLOAD_DIR, name), buf);
+      written += 1;
+    }
+    if (!written) {
+      return NextResponse.json({ error: "Принимаются только файлы .xlsx / .xls" }, { status: 400 });
     }
   }
 
