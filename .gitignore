@@ -6,6 +6,7 @@ data/raw/
 # derived partner data — same commercial content as the dumps, just computed.
 # Never commit a workspace: the buyer uploads 1C Excel, then we compute.
 backend/data/workspace.json
+backend/data/order_state.json
 backend/data/uploads/
 data/workspace.json
 data/uploads/
