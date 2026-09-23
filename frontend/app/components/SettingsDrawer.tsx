@@ -1,9 +1,16 @@
 "use client";
 
+import { metaFrom, peakSeasonFrom } from "@/app/data/catalog";
 import { Icon } from "./Icon";
+import { useWorkspace } from "./WorkspaceProvider";
 
 export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { bundle } = useWorkspace();
   if (!open) return null;
+  const meta = bundle
+    ? metaFrom(bundle)
+    : { horizonWeeks: 8, supplier: "—", monthEquiv: 2 };
+  const peakSeason = bundle ? peakSeasonFrom(bundle) : { month: "—", coef: 1 };
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -25,34 +32,58 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
           <section>
             <h3 className="mb-3 text-[13px] font-semibold text-ink">1. Горизонт планирования</h3>
             <div className="grid grid-cols-4 gap-2">
-              {["4 нед", "8 нед", "12 нед", "26 нед"].map((label, i) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={`rounded-lg border px-2 py-2 text-xs font-medium ${
-                    i === 1 ? "border-primary-container bg-primary-fixed text-primary" : "border-line text-ink-secondary"
-                  }`}
-                >
-                  {label}
-                  {i === 1 ? <span className="mt-0.5 block text-[10px] text-primary-container">Реком.</span> : null}
-                </button>
-              ))}
+              {[4, 8, 12, 26].map((weeks) => {
+                const active = weeks === meta.horizonWeeks;
+                return (
+                  <button
+                    key={weeks}
+                    type="button"
+                    aria-pressed={active}
+                    className={`rounded-lg border px-2 py-2 text-xs font-medium ${
+                      active ? "border-primary-container bg-primary-fixed text-primary" : "border-line text-ink-secondary"
+                    }`}
+                  >
+                    {weeks} нед
+                    {active ? <span className="mt-0.5 block text-[10px] text-primary-container">Текущий</span> : null}
+                  </button>
+                );
+              })}
             </div>
           </section>
 
           <section className="space-y-3">
             <h3 className="text-[13px] font-semibold text-ink">2. Сезонность и рост</h3>
             {[
-              ["Учитывать сезонность IEK", "Пик июль 1.22 / октябрь 1.24"],
-              ["Устойчивый тренд роста", "Наклон 12 мес. после очистки выбросов"],
-              ["Компенсация stockout", "Пустые остатки не считаем нулевым спросом"],
-            ].map(([title, hint]) => (
-              <label key={title} className="flex items-start justify-between gap-3 rounded-xl border border-line p-3">
+              {
+                title: `Учитывать сезонность ${meta.supplier}`,
+                hint: `Горизонт ×${meta.monthEquiv}, пик ${peakSeason.month} ${peakSeason.coef}`,
+                on: true,
+              },
+              {
+                title: "Компенсация stockout",
+                hint: "Месяцы без остатка исключены из оценки спроса",
+                on: true,
+              },
+              {
+                title: "Устойчивый тренд роста",
+                hint: "Не реализовано — спрос берётся по медиане без наклона",
+                on: false,
+              },
+            ].map(({ title, hint, on }) => (
+              <label
+                key={title}
+                className={`flex items-start justify-between gap-3 rounded-xl border border-line p-3 ${on ? "" : "opacity-60"}`}
+              >
                 <span>
                   <strong className="block text-[13px] font-medium text-ink">{title}</strong>
                   <span className="text-xs text-ink-secondary">{hint}</span>
                 </span>
-                <input type="checkbox" defaultChecked className="mt-1 accent-primary-container" />
+                <input
+                  type="checkbox"
+                  defaultChecked={on}
+                  disabled={!on}
+                  className="mt-1 accent-primary-container"
+                />
               </label>
             ))}
           </section>

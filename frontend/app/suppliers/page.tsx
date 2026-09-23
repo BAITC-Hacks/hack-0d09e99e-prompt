@@ -1,14 +1,23 @@
-import { formatQty, suppliers } from "../data/catalog";
+"use client";
+
+import { ImportPanel } from "../components/ImportPanel";
+import { useWorkspace } from "../components/WorkspaceProvider";
+import { formatQty } from "../data/catalog";
 
 export default function SuppliersPage() {
+  const { bundle } = useWorkspace();
+  if (!bundle) return <ImportPanel />;
+
   return (
     <section>
       <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Поставщики</h1>
-        <p className="text-[13px] text-ink-secondary">В пакете данных один поставщик — IEK. Второго не выдумываем.</p>
+        <p className="text-[13px] text-ink-secondary">
+          Поставщики берутся из загруженной выгрузки. Каталог в продукт не вшит.
+        </p>
       </header>
       <ul className="grid gap-3 md:grid-cols-2">
-        {suppliers.map((s) => (
+        {bundle.suppliers.map((s) => (
           <li key={s.name} className="card p-4">
             <h2 className="text-lg font-semibold text-ink">{s.name}</h2>
             <p className="text-xs text-ink-secondary">{s.role}</p>

@@ -1,11 +1,20 @@
+"use client";
+
 import Link from "next/link";
 import { ForecastChart } from "./components/ForecastChart";
 import { Icon } from "./components/Icon";
+import { ImportPanel } from "./components/ImportPanel";
 import { KpiCard } from "./components/KpiCard";
 import { StatusBadge } from "./components/StatusBadge";
-import { alerts, categories, formatQty, kpis } from "./data/catalog";
+import { useWorkspace } from "./components/WorkspaceProvider";
+import { formatQty, metaFrom, peakSeasonFrom } from "./data/catalog";
 
 export default function DashboardPage() {
+  const { bundle } = useWorkspace();
+  if (!bundle) return <ImportPanel />;
+  const { alerts, categories, kpis } = bundle;
+  const meta = metaFrom(bundle);
+  const peakSeason = peakSeasonFrom(bundle);
   return (
     <div className="flex flex-col gap-6">
       <section className="card flex flex-col justify-between gap-4 p-4 xl:flex-row xl:items-center">
@@ -13,21 +22,21 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight text-ink">Обзор запасов и прогноз спроса</h1>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-status-safe-bg px-2.5 py-0.5 text-[11px] font-semibold text-status-safe">
-              Выгрузка 1С · 22.09.2026
+              Выгрузка 1С · {meta.asOfLabel}
             </span>
           </div>
           <p className="mt-1 text-[13px] text-ink-secondary">
-            Qor · склад Алматы · поставщик IEK · {kpis.skuTotal} SKU в помесячных продажах
+            Qor · склад {meta.warehouse} · поставщик {meta.supplier} · {kpis.skuTotal} SKU в помесячных продажах
           </p>
         </header>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1 rounded-lg bg-surface-low px-3 py-1.5 text-[13px]">
             <Icon name="warehouse" className="text-base text-primary-container" />
-            Склад: <strong>Алматы</strong>
+            Склад: <strong>{meta.warehouse}</strong>
           </span>
           <span className="inline-flex items-center gap-1 rounded-lg bg-surface-low px-3 py-1.5 text-[13px]">
             <Icon name="date_range" className="text-base text-secondary" />
-            Горизонт: <strong>8 недель</strong>
+            Горизонт: <strong>{meta.horizonWeeks} недель</strong>
           </span>
           <Link href="/orders" className="inline-flex items-center gap-1 rounded-lg bg-primary-container px-3 py-2 text-[13px] font-medium text-white shadow-sm">
             <Icon name="bolt" className="text-lg" />
@@ -38,7 +47,7 @@ export default function DashboardPage() {
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="Ключевые показатели">
         <KpiCard label="Позиций к заказу" value={String(kpis.toOrder)} unit="SKU" hint="need = прогноз − остаток − в пути" accent="bg-primary-container" icon="shopping_cart_checkout" />
-        <KpiCard label="Риск дефицита" value={String(kpis.deficit)} unit="SKU" hint="Пустой остаток на сент. 2026" accent="bg-status-critical" icon="warning" chip={`Критично: ${kpis.critical}`} chipClass="bg-status-critical-bg text-status-critical" valueClass="text-status-critical" />
+        <KpiCard label="Риск дефицита" value={String(kpis.deficit)} unit="SKU" hint={`Пустой остаток на ${meta.asOfLabel}`} accent="bg-status-critical" icon="warning" chip={`Критично: ${kpis.critical}`} chipClass="bg-status-critical-bg text-status-critical" valueClass="text-status-critical" />
         <KpiCard label="Излишки" value={String(kpis.excess)} unit="SKU" hint="Остаток > 6 мес. спроса" accent="bg-status-warning" icon="inventory_2" />
         <KpiCard label="В пути" value={formatQty(kpis.inboundQty)} unit="шт" hint={`${kpis.inboundSku} SKU в 6 входящих УТ`} accent="bg-secondary" icon="local_shipping" />
       </section>
@@ -48,11 +57,14 @@ export default function DashboardPage() {
         <div className="flex flex-col justify-between gap-3 pl-3 md:flex-row md:items-center">
           <div>
             <p className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-ink">
-              Рекомендация по выгрузке IEK
-              <span className="rounded bg-ai-insight-bg px-2 py-0.5 text-[11px] font-medium text-ai-insight">сезонность октября 1.24</span>
+              Рекомендация по выгрузке {meta.supplier}
+              <span className="rounded bg-ai-insight-bg px-2 py-0.5 text-[11px] font-medium text-ai-insight">
+                сезонность {peakSeason.month} {peakSeason.coef}
+              </span>
             </p>
             <p className="text-xs text-ink-secondary">
-              {kpis.toOrder} позиций к заказу, {kpis.critical} критичных. В пути {formatQty(kpis.inboundQty)} ед. по 300 артикулам. Цен в выгрузке нет — считаем штуки.
+              {kpis.toOrder} позиций к заказу, {kpis.critical} критичных. В пути {formatQty(kpis.inboundQty)} ед. по {kpis.inboundSku} артикулам. Цен в выгрузке нет — считаем штуки.
+              {(kpis.unverified ?? 0) > 0 ? ` ${kpis.unverified} позиций без истории остатков вынесены из витрины.` : ""}
             </p>
           </div>
           <Link href="/orders" className="rounded-lg bg-primary-container px-3 py-1.5 text-[13px] font-medium text-white">
@@ -62,7 +74,7 @@ export default function DashboardPage() {
       </aside>
 
       <section className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
-        <ForecastChart />
+        <ForecastChart asOf={meta.asOf} series={bundle.series} supplier={meta.supplier} />
         <article className="card flex flex-col gap-4 p-4 lg:col-span-4">
           <header>
             <h2 className="text-xl font-semibold text-ink">Категории (по наименованию)</h2>

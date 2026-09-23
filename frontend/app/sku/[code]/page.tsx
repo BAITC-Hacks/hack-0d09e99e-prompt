@@ -1,19 +1,27 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ForecastChart } from "../../components/ForecastChart";
 import { Icon } from "../../components/Icon";
-import { findSku, formatQty } from "../../data/catalog";
+import { ImportPanel } from "../../components/ImportPanel";
+import { findSkuIn, formatQty, formatSigned, metaFrom } from "../../data/catalog";
+import { readWorkspace } from "../../data/workspace";
 
 export default async function SkuPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
-  const sku = findSku(code);
-  const waterfall = [
-    { label: "Спрос/мес после IQR", value: `${formatQty(sku.demandMonth)} ${sku.unit}` },
-    { label: "Сезонность октября 1.24 × 8 недель", value: `${formatQty(sku.forecast8w)} ${sku.unit}` },
-    { label: "Компенсация пустого остатка", value: `+${formatQty(sku.lostDemand)}` },
-    { label: "Текущий остаток", value: `−${formatQty(sku.stock)}` },
-    { label: "В пути", value: `−${formatQty(sku.inTransit)}` },
-    { label: "Округление до MOQ", value: `${sku.recommended} ${sku.unit}` },
-  ];
+  const bundle = readWorkspace();
+  if (!bundle) return <ImportPanel />;
+  const sku = findSkuIn(bundle, decodeURIComponent(code));
+  if (!sku) notFound();
+  const meta = metaFrom(bundle);
+
+  // Шаги приходят из движка. Здесь только форматирование — формулы тут нет.
+  const waterfall = sku.steps.map((step) => ({
+    label: step.label,
+    value:
+      step.delta !== undefined
+        ? formatSigned(step.delta)
+        : `${formatQty(step.value ?? 0)} ${sku.unit}`,
+  }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -29,11 +37,11 @@ export default async function SkuPage({ params }: { params: Promise<{ code: stri
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-ink">{sku.name}</h1>
             <p className="mt-1 text-[13px] text-ink-secondary">
-              {sku.code} · {sku.unit} · MOQ {sku.moq} · {sku.category} · IEK · Алматы
+              {sku.code} · {sku.unit} · MOQ {sku.moq} · {sku.category} · {meta.supplier} · {meta.warehouse}
             </p>
           </div>
           <Link href="/orders" className="rounded-lg bg-primary px-3 py-2 text-[13px] font-medium text-white">
-            К заказу IEK
+            К заказу
           </Link>
         </header>
         <ul className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -51,7 +59,7 @@ export default async function SkuPage({ params }: { params: Promise<{ code: stri
         </ul>
       </section>
 
-      <ForecastChart />
+      <ForecastChart asOf={meta.asOf} series={bundle.series} supplier={meta.supplier} />
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <article className="card p-4 lg:col-span-8">
@@ -71,10 +79,27 @@ export default async function SkuPage({ params }: { params: Promise<{ code: stri
         <article className="card p-4 lg:col-span-4">
           <h2 className="text-xl font-semibold">Обоснование</h2>
           <p className="mt-2 text-[13px] text-ink-secondary">
-            {sku.recommended} {sku.unit}: медианный спрос после отсечения выбросов, умноженный на коэффициент октября из файла сезонности.
-            {sku.stockoutNow ? " Остаток в сентябре пустой — добавлена компенсация упущенного спроса." : ""}
+            {formatQty(sku.recommended)} {sku.unit}: медианный спрос{" "}
+            {formatQty(sku.demandMonth)} {sku.unit}/мес, посчитанный по {sku.monthsUsed} мес.
+            с наличием на складе, на горизонт {meta.horizonWeeks} нед. с учётом сезонности
+            (×{meta.monthEquiv}).
+            {sku.stockout12m > 0
+              ? ` Месяцы дефицита (${sku.stockout12m} за последние 12) из оценки исключены — иначе спрос занижается.`
+              : ""}
             {sku.inTransit > 0 ? ` В пути уже ${formatQty(sku.inTransit)} (${sku.inTransitEta}).` : ""}
           </p>
+          {sku.lostDemand > 0 ? (
+            <p className="mt-2 rounded-lg border border-status-warning-border bg-status-warning-bg p-2 text-xs text-status-warning">
+              Упущено за 12 мес. из-за отсутствия товара: ≈{formatQty(sku.lostDemand)} {sku.unit}.
+              В заказ не добавляется — это оценка потерь, а не потребность.
+            </p>
+          ) : null}
+          {sku.neverStocked || sku.noStockRecord || sku.monthsUsed < 3 ? (
+            <p className="mt-2 rounded-lg border border-line bg-surface-low p-2 text-xs text-ink-secondary">
+              Рекомендация слабо обоснована: истории наличия на складе {meta.warehouse} почти
+              нет ({sku.monthsUsed} мес.). Проверьте позицию вручную.
+            </p>
+          ) : null}
         </article>
       </section>
     </div>

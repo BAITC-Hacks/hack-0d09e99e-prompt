@@ -7,7 +7,6 @@ import { Topbar } from "./Topbar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [recalcAt, setRecalcAt] = useState("22.09.2026 16:04");
 
   return (
     <div>
@@ -15,12 +14,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         К содержимому
       </a>
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
-      <Topbar
-        onOpenSettings={() => setSettingsOpen(true)}
-        onRecalc={() => setRecalcAt(new Date().toLocaleString("ru-RU"))}
-      />
+      <Topbar onOpenSettings={() => setSettingsOpen(true)} />
       <main id="content" className="shell-main px-6 pb-8">
-        <p className="sr-only">Последний пересчёт: {recalcAt}</p>
         {children}
       </main>
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -1,20 +1,29 @@
 # Qor — закупки ekt.kz
 
-**Qor** (қаз. *қор* — запас). Рабочее место менеджера по закупкам: расчёт заказов IEK по выгрузке 1С.
+**Qor** (қаз. *қор* — запас). Рабочее место менеджера по закупкам: загрузите выгрузку 1С — получите заказы поставщикам.
 
-## Запуск веба
+Каталог в продукт не вшит. Веб только показывает расчёт после загрузки Excel. Модель спроса обучается отдельно.
+
+## Папки
+
+- `frontend/` — Next.js, экраны закупщика.
+- `backend/` — движок расчёта (`build_iek_bundle.py`). Фронт вызывает его при загрузке файлов.
+- `docs/` — постановка и схема выгрузок.
+
+## Запуск
 
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
 
 Открыть [http://localhost:3000](http://localhost:3000).
 
-Экраны: `/` дашборд, `/orders` заказы, `/sku/[артикул]` карточка, `/anomalies`, `/suppliers`.
+Зависимости движка: `pip install -r backend/requirements.txt`.
 
-Данные: `app/data/iek.json` собирается скриптом `python3 scripts/build_iek_bundle.py` из `/Documents/IEK`.
+Экраны: `/` дашборд, `/import` выгрузка, `/orders` заказы, `/sku/[артикул]` карточка, `/anomalies`, `/suppliers`.
 
-## Данные
+Результат расчёта лежит в `backend/data/workspace.json` и в git не попадает.
 
-Реальные выгрузки IEK: `/Users/azamatomirtaj/Documents/IEK`. Схема — `docs/06-datasets.md`.
+Локальная папка для кнопки «демо»: `/Users/azamatomirtaj/Documents/IEK`. Схема файлов — `docs/06-datasets.md`.

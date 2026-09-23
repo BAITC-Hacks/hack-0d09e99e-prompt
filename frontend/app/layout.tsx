@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { AppShell } from "./components/AppShell";
+import { WorkspaceProvider } from "./components/WorkspaceProvider";
+import { readWorkspace } from "./data/workspace";
 import "./globals.css";
 
 const inter = Inter({
@@ -11,10 +13,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Qor — закупки ekt.kz",
-  description: "Qor (қор — запас): расчёт заказов IEK по выгрузке 1С, аномалии, согласование, экспорт в 1С.",
+  description: "Qor: загрузите выгрузку 1С — получите заказы поставщикам.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const initial = readWorkspace();
   return (
     <html lang="ru" className={inter.variable}>
       <head>
@@ -24,7 +27,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="font-sans">
-        <AppShell>{children}</AppShell>
+        <WorkspaceProvider initial={initial}>
+          <AppShell>{children}</AppShell>
+        </WorkspaceProvider>
       </body>
     </html>
   );

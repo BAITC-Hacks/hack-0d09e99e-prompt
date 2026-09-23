@@ -2,15 +2,31 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { anomalies, formatQty, kpis, lines, type OrderLine } from "@/app/data/catalog";
+import { formatQty, formatSigned, metaFrom, type OrderLine } from "@/app/data/catalog";
 import { Icon } from "./Icon";
+import { ImportPanel } from "./ImportPanel";
 import { StatusBadge } from "./StatusBadge";
+import { useWorkspace } from "./WorkspaceProvider";
+
+/** Количество допустимо, если это целое ≥ 0 и кратно минимальной партии. */
+function isValidQty(raw: string, moq: number) {
+  if (raw.trim() === "") return false;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) return false;
+  return moq <= 1 || n % moq === 0;
+}
 
 export function OrdersWorkspace() {
+  const { bundle } = useWorkspace();
+  const lines = bundle?.lines ?? [];
+  const kpis = bundle?.kpis;
+  const anomalies = bundle?.anomalies ?? [];
+  const meta = bundle ? metaFrom(bundle) : null;
   const [query, setQuery] = useState("");
   const [tone, setTone] = useState<"all" | "critical" | "warning">("critical");
-  const [openRow, setOpenRow] = useState(lines[0]?.article ?? "");
-  const [qty, setQty] = useState<Record<string, number>>({});
+  const [openRow, setOpenRow] = useState(lines[0]?.code ?? "");
+  // Сырой текст поля, а не число: иначе очистка ввода схлопывает количество в 0.
+  const [qty, setQty] = useState<Record<string, string>>({});
   const [limit, setLimit] = useState(60);
 
   const filtered = useMemo(() => {
@@ -20,9 +36,20 @@ export function OrdersWorkspace() {
       if (!q) return true;
       return `${l.article} ${l.code} ${l.name}`.toLowerCase().includes(q);
     });
-  }, [query, tone]);
+  }, [lines, query, tone]);
 
   const view = filtered.slice(0, limit);
+
+  // Заказ уходит в 1С — количество обязано быть кратно минимальной партии.
+  const invalid = useMemo(
+    () =>
+      Object.entries(qty)
+        .map(([code, raw]) => ({ line: lines.find((l) => l.code === code), raw }))
+        .filter(({ line, raw }) => line && !isValidQty(raw, line.moq)),
+    [lines, qty],
+  );
+
+  if (!bundle || !kpis || !meta) return <ImportPanel />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -30,7 +57,9 @@ export function OrdersWorkspace() {
         <div>
           <p className="label-caps text-ink-muted">Qor / Заказы поставщикам</p>
           <h1 className="text-[30px] font-bold tracking-tight text-ink">Рекомендованные заказы</h1>
-          <p className="mt-1 text-xs text-ink-secondary">Алматы · IEK · 8 недель · выгрузка 22.09.2026 · без цен</p>
+          <p className="mt-1 text-xs text-ink-secondary">
+            {meta.warehouse} · {meta.supplier} · {meta.horizonWeeks} недель · выгрузка {meta.asOfLabel} · без цен
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] shadow-card">
@@ -42,7 +71,12 @@ export function OrdersWorkspace() {
           <button type="button" disabled className="rounded-lg border border-line px-3 py-1.5 text-[13px] text-ink-muted">
             Экспорт в 1С
           </button>
-          <button type="button" className="rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-white">
+          <button
+            type="button"
+            disabled={invalid.length > 0}
+            title={invalid.length > 0 ? "Есть количества не кратные MOQ" : undefined}
+            className="rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:bg-ink-muted"
+          >
             Отправить на согласование
           </button>
         </div>
@@ -66,6 +100,11 @@ export function OrdersWorkspace() {
         </div>
         <p className="text-xs text-ink-secondary">
           Показано <strong className="text-ink">{view.length}</strong> из {filtered.length}
+          {invalid.length > 0 ? (
+            <span className="ml-2 font-medium text-status-critical">
+              · {invalid.length} поз. с количеством не кратным MOQ — согласование заблокировано
+            </span>
+          ) : null}
         </p>
       </section>
 
@@ -94,10 +133,10 @@ export function OrdersWorkspace() {
                   <OrderRows
                     key={line.code}
                     line={line}
-                    qty={qty[line.code] ?? line.recommended}
-                    open={openRow === line.article}
+                    qty={qty[line.code] ?? String(line.recommended)}
+                    open={openRow === line.code}
                     onQty={(v) => setQty((s) => ({ ...s, [line.code]: v }))}
-                    onToggle={() => setOpenRow((cur) => (cur === line.article ? "" : line.article))}
+                    onToggle={() => setOpenRow((cur) => (cur === line.code ? "" : line.code))}
                   />
                 ))}
               </tbody>
@@ -135,11 +174,12 @@ function OrderRows({
   onToggle,
 }: {
   line: OrderLine;
-  qty: number;
+  qty: string;
   open: boolean;
-  onQty: (v: number) => void;
+  onQty: (v: string) => void;
   onToggle: () => void;
 }) {
+  const valid = isValidQty(qty, line.moq);
   return (
     <>
       <tr className={`border-t border-line/70 ${open ? "border-l-4 border-l-primary bg-primary/5" : "hover:bg-surface-low/70"}`}>
@@ -162,7 +202,22 @@ function OrderRows({
         <td className="px-3 py-2.5 text-right tabular-nums">{formatQty(line.demandMonth)}</td>
         <td className="px-3 py-2.5 text-right tabular-nums">{formatQty(line.forecast8w)}</td>
         <td className="px-3 py-2.5 text-right">
-          <input type="number" min={0} value={qty} onChange={(e) => onQty(Number(e.target.value))} className="w-16 rounded-md border border-primary px-1 py-1 text-right text-xs font-semibold" />
+          <input
+            type="number"
+            min={0}
+            step={line.moq > 1 ? line.moq : 1}
+            value={qty}
+            onChange={(e) => onQty(e.target.value)}
+            aria-invalid={!valid}
+            aria-label={`Количество, ${line.article}`}
+            title={valid ? undefined : `Кратно ${line.moq} (MOQ)`}
+            className={`w-16 rounded-md border px-1 py-1 text-right text-xs font-semibold ${
+              valid ? "border-primary" : "border-status-critical bg-status-critical-bg text-status-critical"
+            }`}
+          />
+          {!valid ? (
+            <p className="mt-0.5 text-[10px] font-medium text-status-critical">кратно {line.moq}</p>
+          ) : null}
         </td>
         <td className="px-3 py-2.5 text-center">
           <StatusBadge tone={line.urgency} pulse={line.urgency === "critical"} />
@@ -176,21 +231,27 @@ function OrderRows({
       {open ? (
         <tr>
           <td colSpan={8} className="bg-card p-3">
-            <p className="text-sm font-semibold text-ink">Почему {qty} {line.unit}</p>
-            <ul className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
-              <li className="rounded-lg border border-line p-2 text-xs">
-                Спрос/мес (IQR) <strong className="block">{formatQty(line.demandMonth)}</strong>
-              </li>
-              <li className="rounded-lg border border-line p-2 text-xs">
-                × сезон окт. 1.24 × 2 мес. <strong className="block">{formatQty(line.forecast8w)}</strong>
-              </li>
-              <li className="rounded-lg border border-line p-2 text-xs">
-                Stockout + <strong className="block">{formatQty(line.lostDemand)}</strong>
-              </li>
-              <li className="rounded-lg border border-line p-2 text-xs">
-                − остаток − в пути, ceil MOQ <strong className="block">{line.recommended}</strong>
-              </li>
+            <p className="text-sm font-semibold text-ink">
+              Почему {formatQty(line.recommended)} {line.unit}
+            </p>
+            {/* Шаги приходят из движка — формулы в вёрстке нет. */}
+            <ul className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-5">
+              {line.steps.map((step) => (
+                <li key={step.key} className="rounded-lg border border-line p-2 text-xs">
+                  {step.label}
+                  <strong className="block tabular-nums">
+                    {step.delta !== undefined ? formatSigned(step.delta) : formatQty(step.value ?? 0)}
+                  </strong>
+                </li>
+              ))}
             </ul>
+            <p className="mt-2 text-[11px] text-ink-secondary">
+              Спрос оценён по {line.monthsUsed} мес. с наличием на складе
+              {line.stockout12m > 0 ? `; ${line.stockout12m} мес. дефицита за год исключены` : ""}.
+              {line.lostDemand > 0
+                ? ` Упущено ≈${formatQty(line.lostDemand)} ${line.unit} — в заказ не входит.`
+                : ""}
+            </p>
           </td>
         </tr>
       ) : null}
