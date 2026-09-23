@@ -28,8 +28,13 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       <div>
         <div className="nav-brand">
           <Link href="/" className="brand">
-            <Logo title="" />
-            <span>Qor</span>
+            <span className="brand-mark">
+              <Logo title="" />
+            </span>
+            <span className="brand-copy">
+              <span className="brand-name">Qor</span>
+              <span className="brand-tag">Закупки ekt.kz</span>
+            </span>
           </Link>
           {meta ? (
             <p className="warehouse">

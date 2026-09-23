@@ -213,6 +213,32 @@ TOOLS = [
 # TOOL EXECUTOR
 # ============================================================
 
+def compact_order(order: dict) -> dict:
+    """
+    Плоская проекция позиции для ответа модели.
+
+    Полный вложенный объект остаётся в REST-эндпоинтах,
+    а в чат уходят только поля, нужные для человеческого
+    ответа, — иначе модель вываливает весь JSON пользователю.
+    """
+    procurement = order.get("procurement") or {}
+    inventory = order.get("inventory") or {}
+    risk = order.get("risk") or {}
+    signals = order.get("signals") or {}
+    return {
+        "name": (order.get("product_name") or "").strip(),
+        "sku": order.get("sku"),
+        "recommended": procurement.get("recommended_order"),
+        "moq": procurement.get("moq"),
+        "forecast": order.get("forecast"),
+        "free_stock": inventory.get("free_stock"),
+        "incoming": inventory.get("incoming"),
+        "urgency": risk.get("urgency"),
+        "stockout_now": signals.get("stockout"),
+        "reason": order.get("reason"),
+    }
+
+
 def execute_tool(
     name: str,
     arguments: dict,
@@ -225,26 +251,35 @@ def execute_tool(
     """
 
     if name == "get_critical_orders":
-        return get_critical_orders(
-            arguments.get(
-                "limit",
-                10,
+        return [
+            compact_order(order)
+            for order in get_critical_orders(
+                arguments.get(
+                    "limit",
+                    10,
+                )
             )
-        )
+        ]
 
     if name == "get_supplier_orders":
-        return get_supplier_orders(
-            arguments["supplier"],
-            arguments.get(
-                "limit",
-                20,
-            ),
-        )
+        return [
+            compact_order(order)
+            for order in get_supplier_orders(
+                arguments["supplier"],
+                arguments.get(
+                    "limit",
+                    20,
+                ),
+            )
+        ]
 
     if name == "get_order_by_sku":
-        return get_order_by_sku(
+        order = get_order_by_sku(
             arguments["sku"]
         )
+        if "error" in order:
+            return order
+        return compact_order(order)
 
     if name == "simulate_order":
         return simulate_order(
@@ -319,6 +354,25 @@ SYSTEM_PROMPT = """
 
 13. Отвечай на русском языке, если пользователь
 не попросил другой язык.
+
+ФОРМА ОТВЕТА:
+
+14. Сначала короткая сводка в 1–2 предложения
+(сколько позиций, что у них общего), потом список
+не более чем из 5 позиций. Если позиций больше —
+закончи фразой «и ещё N» и предложи уточнить запрос.
+
+15. Каждая позиция — одна строка: название товара,
+рекомендованное количество и конкретная причина
+из поля reason (остаток, прогноз, путь).
+Не выводи все поля подряд и не повторяй одну
+и ту же фразу-причину для каждой строки.
+
+16. Не показывай внутренние коды SKU, если
+пользователь сам про них не спросил.
+
+17. Пиши коротко и по-деловому, без вступлений
+вроде «Отлично, вот...».
 """
 
 
@@ -452,13 +506,19 @@ def chat(
         # ----------------------------------------------------
 
         if not assistant_message.tool_calls:
+            # Модель ответила без инструмента (приветствие,
+            # оффтоп, уточнение) — отдаём её текст, а не
+            # заглушку «нет данных».
+            content = (
+                assistant_message.content or ""
+            ).strip()
             return {
-                "answer": (
-                     "В предоставленном датасете QOR "
-                         "нет данных для ответа на этот вопрос."
-        ),
-        "tools_used": [],
-    }
+                "answer": content or (
+                    "В предоставленном датасете QOR "
+                    "нет данных для ответа на этот вопрос."
+                ),
+                "tools_used": [],
+            }
 
         # ----------------------------------------------------
         # ADD ASSISTANT TOOL REQUEST

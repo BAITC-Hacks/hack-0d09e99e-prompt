@@ -30,3 +30,7 @@ node_modules/
 .next/
 tsconfig.tsbuildinfo
 .DS_Store
+
+# playwright artifacts
+frontend/playwright-report/
+frontend/test-results/

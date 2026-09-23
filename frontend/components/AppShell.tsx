@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { AssistantChat } from "./AssistantChat";
 import { DirectorHome } from "./DirectorHome";
 import { LoginScreen } from "./LoginScreen";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { useSession } from "./SessionProvider";
 import { Sidebar } from "./Sidebar";
-import { Topbar } from "./Topbar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, ready } = useSession();
@@ -28,9 +28,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         К содержимому
       </a>
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
-      <Topbar onOpenSettings={() => setSettingsOpen(true)} />
       <main id="content">{children}</main>
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AssistantChat />
     </div>
   );
 }

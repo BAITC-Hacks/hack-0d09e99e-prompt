@@ -101,7 +101,7 @@ final bundleJson = <String, dynamic>{
   'asOfLabel': '08.2026',
   'supplier': 'IEK',
   'warehouse': 'Алматы',
-  'model': {'name': 'demand_model.cbm'},
+  'model': {'name': 'demand_model_v2.cbm'},
   'kpis': {'toOrder': 3, 'critical': 1, 'deficit': 1, 'inboundSku': 2, 'inboundQty': 500, 'skuTotal': 10},
   'lines': [_line('A1', 'critical'), _line('B2', 'warning', stock: 40), _line('C3', 'safe', stock: 900)],
   'alerts': [_line('A1', 'critical')],

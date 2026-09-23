@@ -1,0 +1,12 @@
+.git
+**/.venv
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/.next
+frontend/test-results
+frontend/playwright-report
+data/processed
+data/raw
+**/*.xlsx
+**/.DS_Store

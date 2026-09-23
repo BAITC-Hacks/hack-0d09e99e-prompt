@@ -38,7 +38,6 @@ export function SkuScreen({ code }: { code: string }) {
             <p className="lede">
               {sku.code} · {sku.unit} · MOQ {sku.moq} · {sku.category} · {meta.supplier}
             </p>
-            <p className="chip-insight">{model.label} · {model.target}</p>
           </div>
           <Link href="/orders" className="btn btn-primary">
             К заказу

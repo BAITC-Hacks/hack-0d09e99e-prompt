@@ -6,6 +6,7 @@ Roles: buyer submits, director approves or returns. Nothing is sent to a supplie
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -17,8 +18,7 @@ from pydantic import BaseModel, Field
 from qor.auth import authenticate, issue_token, public_user, verify_token
 from qor.contract import MODEL_NAME
 from qor.explain import answer, find_line
-from qor.orders import ORDER_ID, approve, get_order, load_workspace, return_order, submit
-from qor.pipeline import MODEL_PATH, build_workspace
+from qor.orders import ORDER_ID, WORKSPACE_PATH, approve, get_order, load_workspace, return_order, submit
 
 app = FastAPI(
     title="Qor",
@@ -76,8 +76,18 @@ def _order_view(state: dict) -> dict:
     return {key: value for key, value in state.items() if key != "asOf"}
 
 
+def _ml_url() -> str | None:
+    value = os.environ.get("QOR_ML_API", "").rstrip("/")
+    return value or None
+
+
 @app.get("/health")
 def health() -> dict:
+    ml = _ml_url()
+    if ml:
+        return {"ok": True, "model": MODEL_NAME, "ready": True, "ml": ml}
+    from qor.pipeline import MODEL_PATH
+
     return {"ok": True, "model": MODEL_NAME, "ready": MODEL_PATH.exists()}
 
 
@@ -160,8 +170,24 @@ def sku_series(code: str, _: dict = Depends(current_user)) -> dict:
     return {"code": sku, "points": points}
 
 
-@app.post("/v1/workspace")
-async def workspace(files: list[UploadFile] = File(...), supplier: str = "IEK") -> dict:
+def _store(built: dict) -> dict:
+    WORKSPACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    WORKSPACE_PATH.write_text(json.dumps(built, ensure_ascii=False), encoding="utf-8")
+    return built
+
+
+async def _build_local(files: list[UploadFile], supplier: str, demo: bool) -> dict:
+    from qor.pipeline import build_workspace
+
+    if demo:
+        folder = Path(os.environ.get("IEK_DATA_DIR", "/data/iek"))
+        try:
+            return build_workspace(folder, supplier)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     uploads = [f for f in files if f.filename]
     if not uploads:
         raise HTTPException(status_code=400, detail="Загрузите выгрузки 1С (xlsx)")
@@ -171,13 +197,47 @@ async def workspace(files: list[UploadFile] = File(...), supplier: str = "IEK") 
             name = Path(upload.filename or "upload.xlsx").name
             (folder / name).write_bytes(await upload.read())
         try:
-            built = build_workspace(folder, supplier)
+            return build_workspace(folder, supplier)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-    from qor.orders import WORKSPACE_PATH
 
-    WORKSPACE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    WORKSPACE_PATH.write_text(json.dumps(built, ensure_ascii=False), encoding="utf-8")
-    return built
+
+async def _build_remote(ml: str, files: list[UploadFile], supplier: str, demo: bool) -> dict:
+    import httpx
+
+    payload = []
+    for upload in files:
+        if not upload.filename:
+            continue
+        payload.append(
+            ("files", (Path(upload.filename).name, await upload.read(), "application/vnd.ms-excel"))
+        )
+    if not demo and not payload:
+        raise HTTPException(status_code=400, detail="Загрузите выгрузки 1С (xlsx)")
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            response = await client.post(
+                f"{ml}/build",
+                params={"supplier": supplier, "demo": demo},
+                files=payload or None,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Сервис модели не запущен") from exc
+    if response.status_code >= 400:
+        detail = response.json().get("detail") if response.headers.get("content-type", "").startswith("application/json") else response.text
+        raise HTTPException(status_code=response.status_code, detail=detail or "ошибка расчёта")
+    return response.json()
+
+
+@app.post("/v1/workspace")
+async def workspace(
+    files: list[UploadFile] | None = File(None),
+    supplier: str = "IEK",
+    demo: bool = False,
+) -> dict:
+    uploads = files or []
+    ml = _ml_url()
+    built = await (_build_remote(ml, uploads, supplier, demo) if ml else _build_local(uploads, supplier, demo))
+    return _store(built)

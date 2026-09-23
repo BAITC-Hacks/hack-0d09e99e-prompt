@@ -1,0 +1,41 @@
+services:
+  ml:
+    build:
+      context: .
+      dockerfile: ml/Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 90s
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      QOR_ML_API: http://ml:8002
+    ports:
+      - "8000:8000"
+    volumes:
+      - qor-data:/app/data
+    depends_on:
+      ml:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      QOR_API: http://backend:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - qor-data:/backend/data
+    depends_on:
+      - backend
+
+volumes:
+  qor-data:

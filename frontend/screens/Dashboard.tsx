@@ -24,17 +24,12 @@ export function Dashboard() {
         <header>
           <div className="actions">
             <h1>Обзор запасов и прогноз спроса</h1>
-            <span className="chip-safe">Выгрузка 1С · {meta.asOfLabel}</span>
           </div>
           <p className="lede">
             Стол менеджера закупа: что заказать и сколько. Цифру считает {model.label}, количество правится в заказах, утверждает руководитель в приложении.
           </p>
         </header>
         <div className="actions">
-          <span className="chip-insight">
-            <Icon name="psychology" />
-            {model.label}: {model.target}
-          </span>
           <Link href="/orders" className="btn btn-accent">
             <Icon name="bolt" />
             К заказам ({kpis.toOrder})
@@ -44,7 +39,7 @@ export function Dashboard() {
 
       <section className="metrics" aria-label="Ключевые показатели">
         <KpiCard label="Позиций к заказу" value={String(kpis.toOrder)} unit="SKU" hint={model.policy} icon="shopping_cart_checkout" />
-        <KpiCard label="Риск дефицита" value={String(kpis.deficit)} unit="SKU" hint={`Пустой остаток на ${meta.asOfLabel}`} tone="critical" icon="warning" chip={`Критично: ${kpis.critical}`} />
+        <KpiCard label="Риск дефицита" value={String(kpis.deficit)} unit="SKU" hint={`Пустой остаток на ${meta.asOfLabel}`} tone="critical" icon="warning" />
         <KpiCard label="Излишки" value={String(kpis.excess)} unit="SKU" hint="Остаток > 6 мес. спроса" tone="warning" icon="inventory_2" />
         <KpiCard label="В пути" value={formatQty(kpis.inboundQty)} unit="шт" hint={`${kpis.inboundSku} SKU`} tone="secondary" icon="local_shipping" />
       </section>

@@ -135,7 +135,6 @@ export function OrdersWorkspace() {
           <span className="chip">
             К заказу: <strong>{kpis.toOrder} SKU</strong>
           </span>
-          <span className="chip-critical">Критично: {kpis.critical}</span>
           <button type="button" disabled className="btn" title="Экспорт в 1С откроется после утверждения руководителем">
             Экспорт в 1С
           </button>
