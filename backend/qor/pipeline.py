@@ -19,7 +19,7 @@ from catboost import CatBoostRegressor
 from .contract import CATEGORICAL, FEATURES, MODEL_NAME
 
 REPO = Path(__file__).resolve().parents[2]
-PREPARE_PATH = REPO / "scripts" / "prepare_dataset.py"
+PREPARE_PATH = REPO / "scripts" / "prepare_dataset_v2.py"
 MODEL_PATH = REPO / "ml" / "models" / MODEL_NAME
 
 CABLE = re.compile(r"кабел|utp|ftp|витая|itk|провод", re.I)
@@ -133,7 +133,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
 
     prepare = _load_prepare()
     frame = prepare.add_features(prepare.load_supplier(supplier, data_dir))
-    frame = frame[frame["sales_lag_3"].notna()].copy()
+    frame = frame[frame["demand_lag_3"].notna()].copy()
     if frame.empty:
         raise ValueError("после признаков не осталось SKU с историей хотя бы в 3 месяца")
 
@@ -162,7 +162,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
 
     history = frame.sort_values("month")
     months_used = history.groupby("sku").size()
-    stockout_12 = history.groupby("sku").tail(12).groupby("sku")["stockout_flag"].sum()
+    stockout_12 = history.groupby("sku").tail(12).groupby("sku")["stockout_flag_v2"].sum()
     stock_known = history.groupby("sku")["stock"].apply(lambda s: bool(s.notna().any()))
     ever_stocked = history.groupby("sku")["stock"].max().fillna(0) > 0
 
@@ -172,7 +172,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
     lines = []
     for row in latest.itertuples(index=False):
         sku = str(row.sku)
-        name = str(row.product_name).strip()
+        name = " ".join(str(row.product_name).split())
         forecast = _num(row.forecast)
         stock = _num(row.stock)
         incoming = _num(row.incoming)
@@ -259,8 +259,10 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         "featuredArticle": featured,
         "model": {
             "name": MODEL_NAME,
-            "target": "next_month_demand",
-            "policy": "forecast + 0.5*std6 - stock - incoming, ceil MOQ",
+            "label": "CatBoost v2",
+            "target": "спрос на следующий месяц",
+            "policy": "прогноз + 0.5σ − остаток − в пути, кратно MOQ",
+            "uses": ["лаги 1–12 мес.", "сезонность", "stockout", "выбросы"],
         },
         "kpis": {
             "toOrder": len(to_order),

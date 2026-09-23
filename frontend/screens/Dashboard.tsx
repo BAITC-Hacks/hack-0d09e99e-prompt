@@ -7,13 +7,14 @@ import { ImportPanel } from "@/components/ImportPanel";
 import { KpiCard } from "@/components/KpiCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useWorkspace } from "@/components/WorkspaceProvider";
-import { formatQty, metaFrom, peakSeasonFrom } from "@/data/catalog";
+import { cleanText, formatQty, metaFrom, modelFrom, peakSeasonFrom, supplierArticle } from "@/data/catalog";
 
 export function Dashboard() {
   const { bundle } = useWorkspace();
   if (!bundle) return <ImportPanel />;
   const { alerts, categories, kpis } = bundle;
   const meta = metaFrom(bundle);
+  const model = modelFrom(bundle);
   const peakSeason = peakSeasonFrom(bundle);
   const hasSeries = bundle.series.length > 0;
 
@@ -26,17 +27,13 @@ export function Dashboard() {
             <span className="chip-safe">Выгрузка 1С · {meta.asOfLabel}</span>
           </div>
           <p className="lede">
-            Qor · склад {meta.warehouse} · поставщик {meta.supplier} · {kpis.skuTotal} SKU в помесячных продажах
+            Стол менеджера закупа: что заказать и сколько. Цифру считает {model.label}, количество правится в заказах, утверждает руководитель в приложении.
           </p>
         </header>
         <div className="actions">
-          <span className="chip">
-            <Icon name="warehouse" />
-            Склад: <strong>{meta.warehouse}</strong>
-          </span>
-          <span className="chip">
-            <Icon name="date_range" />
-            Горизонт: <strong>{meta.horizonWeeks} недель</strong>
+          <span className="chip-insight">
+            <Icon name="psychology" />
+            {model.label}: {model.target}
           </span>
           <Link href="/orders" className="btn btn-accent">
             <Icon name="bolt" />
@@ -46,25 +43,28 @@ export function Dashboard() {
       </section>
 
       <section className="metrics" aria-label="Ключевые показатели">
-        <KpiCard label="Позиций к заказу" value={String(kpis.toOrder)} unit="SKU" hint="need = прогноз − остаток − в пути" icon="shopping_cart_checkout" />
+        <KpiCard label="Позиций к заказу" value={String(kpis.toOrder)} unit="SKU" hint={model.policy} icon="shopping_cart_checkout" />
         <KpiCard label="Риск дефицита" value={String(kpis.deficit)} unit="SKU" hint={`Пустой остаток на ${meta.asOfLabel}`} tone="critical" icon="warning" chip={`Критично: ${kpis.critical}`} />
         <KpiCard label="Излишки" value={String(kpis.excess)} unit="SKU" hint="Остаток > 6 мес. спроса" tone="warning" icon="inventory_2" />
         <KpiCard label="В пути" value={formatQty(kpis.inboundQty)} unit="шт" hint={`${kpis.inboundSku} SKU`} tone="secondary" icon="local_shipping" />
       </section>
 
-      <aside className="card note">
+      <aside className="card note model">
         <div className="head">
           <div>
             <p>
-              Рекомендация по выгрузке {meta.supplier}
+              {model.label} по выгрузке {meta.supplier}
               {peakSeason ? <span className="chip-insight">сезонность {peakSeason.month} {peakSeason.coef}</span> : null}
+            </p>
+            <p className="lede">
+              Сначала модель даёт {model.target}. Затем правило заказа: {model.policy}. В таблице это колонка «Прогноз» и кнопка «почему».
             </p>
             <p className="muted">
               {kpis.toOrder} позиций к заказу, {kpis.critical} критичных. В пути {formatQty(kpis.inboundQty)} ед. по {kpis.inboundSku} артикулам. Цен в выгрузке нет — считаем штуки.
               {(kpis.unverified ?? 0) > 0 ? ` ${kpis.unverified} позиций без истории остатков вынесены из витрины.` : ""}
             </p>
           </div>
-          <Link href="/orders" className="btn btn-accent">Открыть заказы</Link>
+          <Link href="/orders" className="btn">К таблице заказов</Link>
         </div>
       </aside>
 
@@ -94,9 +94,9 @@ export function Dashboard() {
         <header className="pad head">
           <div>
             <h2>Критичные позиции</h2>
-            <p className="faint">Пустой остаток или запас короче горизонта поставки</p>
+            <p className="faint">Нажмите строку, чтобы открыть артикул. Полный список — в заказах.</p>
           </div>
-          <Link href="/orders" className="btn btn-critical">Все заказы</Link>
+          <Link href="/orders" className="btn">Все заказы</Link>
         </header>
         <table>
           <thead>
@@ -112,8 +112,8 @@ export function Dashboard() {
             {alerts.map((row) => (
               <tr key={row.code}>
                 <td>
-                  <Link href={`/sku/${encodeURIComponent(row.article)}`}>{row.name}</Link>
-                  <p className="sku">{row.article} · {row.code}</p>
+                  <Link href={`/sku/${encodeURIComponent(row.article)}`} className="thing">{cleanText(row.name)}</Link>
+                  <p className="sku">{supplierArticle(row) ? `${supplierArticle(row)} · ` : ""}код 1С {row.code}</p>
                 </td>
                 <td>{row.stock} {row.unit}</td>
                 <td>{row.inTransit}</td>

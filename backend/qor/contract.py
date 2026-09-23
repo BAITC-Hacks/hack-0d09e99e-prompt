@@ -1,18 +1,18 @@
-"""Feature contract of ml/models/demand_model.cbm.
+"""Feature contract of ml/models/demand_model_v2.cbm.
 
-The file was trained by scripts/train_model.py on data/processed/training_dataset.csv
-(prepare_dataset.py, v1). prepare_dataset_v2.py builds a different column set and
-must not be fed to this model.
+Trained by scripts/train_model_v2.py on data/processed/training_dataset_v2.csv.
+Live orders must be built with scripts/prepare_dataset_v2.py — the v1 columns
+do not match this file.
 """
 
 FEATURES = [
     "supplier",
     "sku",
-    "sales_lag_1",
-    "sales_lag_2",
-    "sales_lag_3",
-    "sales_lag_6",
-    "sales_lag_12",
+    "demand_lag_1",
+    "demand_lag_2",
+    "demand_lag_3",
+    "demand_lag_6",
+    "demand_lag_12",
     "rolling_mean_3",
     "rolling_mean_6",
     "rolling_mean_12",
@@ -25,9 +25,12 @@ FEATURES = [
     "quarter",
     "month_sin",
     "month_cos",
-    "stockout_flag",
+    "seasonality_index",
+    "outlier_lag_1",
+    "stockout_lag_1",
+    "lost_demand_lag_1",
 ]
 
 CATEGORICAL = ["supplier", "sku"]
 
-MODEL_NAME = "demand_model.cbm"
+MODEL_NAME = "demand_model_v2.cbm"

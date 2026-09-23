@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
+import { SessionProvider } from "@/components/SessionProvider";
 import { WorkspaceProvider } from "@/components/WorkspaceProvider";
 import { readWorkspace } from "@/data/workspace";
 import "./globals.css";
@@ -28,7 +29,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <WorkspaceProvider initial={initial}>
-          <AppShell>{children}</AppShell>
+          <SessionProvider>
+            <AppShell>{children}</AppShell>
+          </SessionProvider>
         </WorkspaceProvider>
       </body>
     </html>

@@ -1,14 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { formatQty, formatSigned, metaFrom, type OrderLine } from "@/data/catalog";
+import { useEffect, useMemo, useState } from "react";
+import { cleanText, formatQty, formatSigned, metaFrom, modelFrom, supplierArticle, type OrderLine } from "@/data/catalog";
 import { Icon } from "./Icon";
 import { ImportPanel } from "./ImportPanel";
+import { useSession } from "./SessionProvider";
 import { StatusBadge } from "./StatusBadge";
 import { useWorkspace } from "./WorkspaceProvider";
 
 /** Количество допустимо, если это целое ≥ 0 и кратно минимальной партии. */
+type OrderState = {
+  status: "draft" | "pending_approval" | "approved" | "returned";
+  sentBy?: string | null;
+  decidedBy?: string | null;
+  comment?: string | null;
+};
+
+const statusLabel: Record<OrderState["status"], string> = {
+  draft: "Черновик",
+  pending_approval: "На согласовании",
+  approved: "Утверждено",
+  returned: "На доработке",
+};
+
+function approvalHint(status: OrderState["status"], order: OrderState | null) {
+  if (status === "pending_approval") {
+    return `Отправлено${order?.sentBy ? ` (${order.sentBy})` : ""}. Руководитель утверждает или возвращает в приложении. Поставщику заказ не уходит.`;
+  }
+  if (status === "returned") {
+    return order?.comment ? `Руководитель вернул: ${order.comment}` : "Руководитель вернул заказ на доработку.";
+  }
+  if (status === "approved") {
+    return `Утверждено${order?.decidedBy ? ` (${order.decidedBy})` : ""}. Дальше — экспорт в 1С. Поставщику само не уходит.`;
+  }
+  return "Кнопка только переводит черновик в «на согласовании». В 1С и поставщику ничего не отправляется.";
+}
+
 function isValidQty(raw: string, moq: number) {
   if (raw.trim() === "") return false;
   const n = Number(raw);
@@ -22,21 +50,45 @@ export function OrdersWorkspace() {
   const kpis = bundle?.kpis;
   const anomalies = bundle?.anomalies ?? [];
   const meta = bundle ? metaFrom(bundle) : null;
+  const model = bundle ? modelFrom(bundle) : null;
+  const { user } = useSession();
   const [query, setQuery] = useState("");
   const [tone, setTone] = useState<"all" | "critical" | "warning">("critical");
-  const [openRow, setOpenRow] = useState(lines[0]?.code ?? "");
+  const [category, setCategory] = useState("all");
+  const [withArticle, setWithArticle] = useState(false);
+  const [openRow, setOpenRow] = useState("");
+  const [order, setOrder] = useState<OrderState | null>(null);
+  const [sending, setSending] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // Сырой текст поля, а не число: иначе очистка ввода схлопывает количество в 0.
   const [qty, setQty] = useState<Record<string, string>>({});
   const [limit, setLimit] = useState(60);
+
+  const categories = useMemo(() => [...new Set(lines.map((l) => l.category))].sort((a, b) => a.localeCompare(b, "ru")), [lines]);
+
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/orders/current")
+      .then(async (res) => {
+        const data = await res.json();
+        if (!cancel && res.ok) setOrder(data as OrderState);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return lines.filter((l) => {
       if (tone !== "all" && l.urgency !== tone) return false;
+      if (category !== "all" && l.category !== category) return false;
+      if (withArticle && !supplierArticle(l)) return false;
       if (!q) return true;
-      return `${l.article} ${l.code} ${l.name}`.toLowerCase().includes(q);
+      return `${l.article} ${l.code} ${cleanText(l.name)}`.toLowerCase().includes(q);
     });
-  }, [lines, query, tone]);
+  }, [lines, query, tone, category, withArticle]);
 
   const view = filtered.slice(0, limit);
 
@@ -49,6 +101,24 @@ export function OrdersWorkspace() {
     [lines, qty],
   );
 
+  const status = order?.status ?? "draft";
+  const canSubmit = user?.role === "buyer" && (status === "draft" || status === "returned") && invalid.length === 0 && !sending;
+
+  async function sendForApproval() {
+    setSending(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch("/api/orders/submit", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "не отправилось");
+      setOrder(data as OrderState);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "не отправилось");
+    } finally {
+      setSending(false);
+    }
+  }
+
   if (!bundle || !kpis || !meta) return <ImportPanel />;
 
   return (
@@ -58,7 +128,7 @@ export function OrdersWorkspace() {
           <p className="caps">Qor / Заказы поставщикам</p>
           <h1>Рекомендованные заказы</h1>
           <p className="lede">
-            {meta.warehouse} · {meta.supplier} · {meta.horizonWeeks} недель · выгрузка {meta.asOfLabel} · без цен
+            {meta.supplier} · {model?.label} · {model?.target} · выгрузка {meta.asOfLabel}
           </p>
         </div>
         <div className="actions">
@@ -66,16 +136,23 @@ export function OrdersWorkspace() {
             К заказу: <strong>{kpis.toOrder} SKU</strong>
           </span>
           <span className="chip-critical">Критично: {kpis.critical}</span>
-          <button type="button" disabled className="btn">
+          <button type="button" disabled className="btn" title="Экспорт в 1С откроется после утверждения руководителем">
             Экспорт в 1С
           </button>
           <button
             type="button"
-            disabled={invalid.length > 0}
-            title={invalid.length > 0 ? "Есть количества не кратные MOQ" : undefined}
+            disabled={!canSubmit}
+            title={
+              user?.role === "director"
+                ? "Отправляет менеджер закупа. Руководитель утверждает в приложении."
+                : invalid.length > 0
+                  ? "Есть количества не кратные MOQ"
+                  : "Статус станет «на согласовании». Поставщику ничего не уйдёт."
+            }
             className="btn btn-primary"
+            onClick={() => void sendForApproval()}
           >
-            Отправить на согласование
+            {sending ? "Отправляем…" : status === "pending_approval" ? "На согласовании" : "Отправить на согласование"}
           </button>
         </div>
       </header>
@@ -85,17 +162,28 @@ export function OrdersWorkspace() {
           <label className="search">
             <span className="skip">Поиск</span>
             <Icon name="search" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Артикул, код 1С, наименование" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Название, артикул IEK или код 1С" />
           </label>
           <select value={tone} onChange={(e) => setTone(e.target.value as typeof tone)}>
             <option value="critical">Срочность: критично ({kpis.critical})</option>
             <option value="warning">Скоро</option>
             <option value="all">Все {kpis.toOrder}</option>
           </select>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="all">Все категории</option>
+            {categories.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
           <Link href="/anomalies" className="chip-insight">
             Аномалии ({anomalies.length})
           </Link>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={withArticle} onChange={(e) => setWithArticle(e.target.checked)} />
+          Только с артикулом поставщика — без позиций, где в файле остался только код 1С
+        </label>
+        {submitError ? <p className="error">{submitError}</p> : null}
         <p className="muted">
           Показано <strong>{view.length}</strong> из {filtered.length}
           {invalid.length > 0 ? (
@@ -120,8 +208,7 @@ export function OrdersWorkspace() {
                   <th>Артикул</th>
                   <th>Остаток</th>
                   <th>В пути</th>
-                  <th>Спрос/мес</th>
-                  <th>Прогноз 8н</th>
+                  <th>Прогноз</th>
                   <th>Рек.</th>
                   <th>Статус</th>
                   <th />
@@ -154,9 +241,11 @@ export function OrdersWorkspace() {
             <div><dt className="muted">Поставщик</dt><dd>{meta.supplier}</dd></div>
             <div><dt className="muted">К заказу</dt><dd>{kpis.toOrder}</dd></div>
             <div><dt className="muted">Критично</dt><dd>{kpis.critical}</dd></div>
-            <div><dt className="muted">Статус</dt><dd>Черновик</dd></div>
+            <div><dt className="muted">Статус</dt><dd>{statusLabel[status]}</dd></div>
+            {model ? <div><dt className="muted">Модель</dt><dd>{model.label}</dd></div> : null}
           </dl>
-          <p className="warn">Заказ не уходит поставщику. После согласования — экспорт в 1С.</p>
+          {model ? <p className="muted">{model.policy}. Колонка «Прогноз» — это она, «Рек.» — уже заказ.</p> : null}
+          <p className="warn">{approvalHint(status, order)}</p>
         </aside>
       </div>
     </>
@@ -181,12 +270,12 @@ function OrderRows({
     <>
       <tr data-open={open ? "true" : undefined}>
         <td>
-          <Link href={`/sku/${encodeURIComponent(line.article)}`} className="article">
-            {line.article}
+          <Link href={`/sku/${encodeURIComponent(line.article)}`} className="thing">
+            {cleanText(line.name)}
           </Link>
-          <p>{line.name}</p>
           <p className="faint">
-            {line.code} · MOQ {line.moq}
+            {supplierArticle(line) ? <span className="article">{supplierArticle(line)} · </span> : null}
+            код 1С {line.code} · {line.category} · MOQ {line.moq}
           </p>
         </td>
         <td className={line.stockoutNow ? "stockout" : undefined}>
@@ -197,7 +286,6 @@ function OrderRows({
           {line.inTransitEta ? <p className="faint">{line.inTransitEta}</p> : null}
         </td>
         <td>{formatQty(line.demandMonth)}</td>
-        <td>{formatQty(line.forecast8w)}</td>
         <td>
           <input
             type="number"
@@ -223,7 +311,7 @@ function OrderRows({
       </tr>
       {open ? (
         <tr>
-          <td colSpan={8}>
+          <td colSpan={7}>
             <p>
               <strong>
                 Почему {formatQty(line.recommended)} {line.unit}
@@ -240,8 +328,8 @@ function OrderRows({
               ))}
             </ul>
             <p className="muted">
-              Спрос оценён по {line.monthsUsed} мес. с наличием на складе
-              {line.stockout12m > 0 ? `; ${line.stockout12m} мес. дефицита за год исключены` : ""}.
+              Прогноз — CatBoost на следующий месяц, не среднее. История: {line.monthsUsed} мес. с наличием
+              {line.stockout12m > 0 ? `; ${line.stockout12m} мес. дефицита учтены как stockout` : ""}.
               {line.lostDemand > 0
                 ? ` Упущено ≈${formatQty(line.lostDemand)} ${line.unit} — в заказ не входит.`
                 : ""}

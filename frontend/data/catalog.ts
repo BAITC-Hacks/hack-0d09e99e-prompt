@@ -45,6 +45,13 @@ export type WorkspaceBundle = {
   monthEquiv?: number;
   seasonParts?: { month: string; share: number; coef: number }[];
   featuredArticle?: string;
+  model?: {
+    name: string;
+    label?: string;
+    target?: string;
+    policy?: string;
+    uses?: string[];
+  };
   kpis: {
     toOrder: number;
     critical: number;
@@ -93,10 +100,39 @@ export function metaFrom(bundle: WorkspaceBundle) {
   };
 }
 
+/** Живая модель из выгрузки. Старые ключи (next_month_demand) тоже читаются. */
+export function modelFrom(bundle: WorkspaceBundle) {
+  const model = bundle.model;
+  const rawTarget = model?.target ?? "";
+  const rawPolicy = model?.policy ?? "";
+  return {
+    name: model?.name ?? "demand_model_v2.cbm",
+    label: model?.label ?? "CatBoost v2",
+    target: rawTarget === "next_month_demand" || !rawTarget ? "спрос на следующий месяц" : rawTarget,
+    policy:
+      rawPolicy.includes("forecast") || !rawPolicy
+        ? "прогноз + 0.5σ − остаток − в пути, кратно MOQ"
+        : rawPolicy,
+    uses: model?.uses ?? ["лаги 1–12 мес.", "сезонность", "stockout", "выбросы"],
+  };
+}
+
 export function peakSeasonFrom(bundle: WorkspaceBundle) {
   const parts = bundle.seasonParts ?? [];
   if (!parts.length) return null;
   return parts.reduce((a, b) => (b.coef > a.coef ? b : a));
+}
+
+/** Схлопывает двойные пробелы из выгрузки 1С. */
+export function cleanText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** Артикул поставщика. Код 1С (совпал с sku или оканчивается на «_») сюда не подходит. */
+export function supplierArticle(line: { article: string; code: string }) {
+  const article = cleanText(line.article);
+  if (!article || article === line.code || article.endsWith("_")) return "";
+  return article;
 }
 
 export function findSkuIn(bundle: WorkspaceBundle, codeOrArticle: string): OrderLine | undefined {

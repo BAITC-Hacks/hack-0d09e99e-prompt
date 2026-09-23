@@ -30,12 +30,12 @@ def load_workspace() -> dict | None:
     return json.loads(WORKSPACE_PATH.read_text(encoding="utf-8"))
 
 
-def _blank(as_of: str | None, status: str = "pending_approval") -> dict:
+def _blank(as_of: str | None, status: str = "draft") -> dict:
     return {
         "id": ORDER_ID,
         "status": status,
-        "sentBy": "Айгерим",
-        "sentAt": _now(),
+        "sentBy": None,
+        "sentAt": None,
         "decidedBy": None,
         "decidedAt": None,
         "comment": None,
@@ -57,10 +57,10 @@ def _write(state: dict) -> None:
 
 
 def _ensure(as_of: str | None) -> dict:
-    """Caller must hold _lock. Missing file starts as already sent for approval."""
+    """Caller must hold _lock. A missing file is a draft the buyer can submit."""
     state = _read()
     if state is None:
-        state = _blank(as_of, "pending_approval")
+        state = _blank(as_of, "draft")
         _write(state)
         return state
     if as_of and state.get("asOf") is None:

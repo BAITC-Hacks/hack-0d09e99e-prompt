@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ForecastChart } from "@/components/ForecastChart";
 import { Icon } from "@/components/Icon";
 import { ImportPanel } from "@/components/ImportPanel";
-import { findSkuIn, formatQty, formatSigned, metaFrom } from "@/data/catalog";
+import { findSkuIn, formatQty, formatSigned, metaFrom, modelFrom } from "@/data/catalog";
 import { readWorkspace } from "@/data/workspace";
 
 export function SkuScreen({ code }: { code: string }) {
@@ -12,6 +12,7 @@ export function SkuScreen({ code }: { code: string }) {
   const sku = findSkuIn(bundle, decodeURIComponent(code));
   if (!sku) notFound();
   const meta = metaFrom(bundle);
+  const model = modelFrom(bundle);
 
   const waterfall = sku.steps.map((step) => ({
     label: step.label,
@@ -35,8 +36,9 @@ export function SkuScreen({ code }: { code: string }) {
           <div>
             <h1>{sku.name}</h1>
             <p className="lede">
-              {sku.code} · {sku.unit} · MOQ {sku.moq} · {sku.category} · {meta.supplier} · {meta.warehouse}
+              {sku.code} · {sku.unit} · MOQ {sku.moq} · {sku.category} · {meta.supplier}
             </p>
+            <p className="chip-insight">{model.label} · {model.target}</p>
           </div>
           <Link href="/orders" className="btn btn-primary">
             К заказу
@@ -46,7 +48,7 @@ export function SkuScreen({ code }: { code: string }) {
           {[
             ["Остаток", `${sku.stock} ${sku.unit}`],
             ["В пути", `${sku.inTransit} ${sku.unit}`],
-            ["Спрос / мес", formatQty(sku.demandMonth)],
+            ["Прогноз модели", formatQty(sku.demandMonth)],
             ["Рекомендация", `${sku.recommended} ${sku.unit}`],
           ].map(([k, v]) => (
             <li key={k}>
@@ -77,12 +79,11 @@ export function SkuScreen({ code }: { code: string }) {
         <article className="card pad stack">
           <h2>Обоснование</h2>
           <p className="muted">
-            {formatQty(sku.recommended)} {sku.unit}: медианный спрос{" "}
-            {formatQty(sku.demandMonth)} {sku.unit}/мес, посчитанный по {sku.monthsUsed} мес.
-            с наличием на складе, на горизонт {meta.horizonWeeks} нед. с учётом сезонности
-            (×{meta.monthEquiv}).
+            {formatQty(sku.recommended)} {sku.unit} — это не сам прогноз. {model.label} дал{" "}
+            {formatQty(sku.demandMonth)} {sku.unit} на следующий месяц, дальше {model.policy}.
+            История с наличием: {sku.monthsUsed} мес.
             {sku.stockout12m > 0
-              ? ` Месяцы дефицита (${sku.stockout12m} за последние 12) из оценки исключены — иначе спрос занижается.`
+              ? ` ${sku.stockout12m} мес. дефицита за год модель видит как stockout, а не как «спроса не было».`
               : ""}
             {sku.inTransit > 0 ? ` В пути уже ${formatQty(sku.inTransit)}${sku.inTransitEta ? ` (${sku.inTransitEta})` : ""}.` : ""}
           </p>
@@ -94,7 +95,7 @@ export function SkuScreen({ code }: { code: string }) {
           ) : null}
           {sku.neverStocked || sku.noStockRecord || sku.monthsUsed < 3 ? (
             <p className="hint">
-              Рекомендация слабо обоснована: истории наличия на складе {meta.warehouse} почти
+              Рекомендация слабо обоснована: истории наличия на складе почти
               нет ({sku.monthsUsed} мес.). Проверьте позицию вручную.
             </p>
           ) : null}

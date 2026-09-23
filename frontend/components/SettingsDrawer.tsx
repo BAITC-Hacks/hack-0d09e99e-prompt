@@ -1,14 +1,13 @@
 "use client";
 
-import { metaFrom, peakSeasonFrom } from "@/data/catalog";
+import { modelFrom } from "@/data/catalog";
 import { Icon } from "./Icon";
 import { useWorkspace } from "./WorkspaceProvider";
 
 export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { bundle } = useWorkspace();
   if (!open) return null;
-  const meta = bundle ? metaFrom(bundle) : null;
-  const peakSeason = bundle ? peakSeasonFrom(bundle) : null;
+  const model = bundle ? modelFrom(bundle) : null;
 
   return (
     <div className="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -17,7 +16,7 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
         <header>
           <div>
             <p className="caps">Модель спроса</p>
-            <h2 id="settings-title">Параметры Qor</h2>
+            <h2 id="settings-title">Как считает Qor</h2>
           </div>
           <button type="button" onClick={onClose} className="icon-btn" aria-label="Закрыть">
             <Icon name="close" />
@@ -25,65 +24,79 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
         </header>
 
         <div className="body">
-          <section className="stack">
-            <h3>1. Горизонт планирования</h3>
-            <div className="weeks">
-              {[4, 8, 12, 26].map((weeks) => {
-                const active = weeks === meta?.horizonWeeks;
-                return (
-                  <button key={weeks} type="button" aria-pressed={active}>
-                    {weeks} нед
-                    {active ? <span>Текущий</span> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          {model ? (
+            <>
+              <section className="stack">
+                <h3>1. Что считает модель</h3>
+                <p className="lede">
+                  {model.label} предсказывает {model.target} в штуках. Это не среднее за прошлый год и не ползунок горизонта.
+                </p>
+                <ul className="recipe">
+                  {model.uses.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <p className="faint">{model.name}</p>
+              </section>
 
-          <section className="stack">
-            <h3>2. Сезонность и рост</h3>
-            {[
-              ...(peakSeason && meta
-                ? [{
-                    title: `Учитывать сезонность ${meta.supplier}`,
-                    hint: `Горизонт ×${meta.monthEquiv}, пик ${peakSeason.month} ${peakSeason.coef}`,
-                    on: true,
-                  }]
-                : []),
-              {
-                title: "Компенсация stockout",
-                hint: "Месяцы без остатка исключены из оценки спроса",
-                on: true,
-              },
-              {
-                title: "Устойчивый тренд роста",
-                hint: "Не реализовано — спрос берётся по медиане без наклона",
-                on: false,
-              },
-            ].map(({ title, hint, on }) => (
-              <label key={title} className="option" data-off={on ? undefined : "true"}>
-                <span>
-                  <strong>{title}</strong>
-                  <span>{hint}</span>
-                </span>
-                <input type="checkbox" defaultChecked={on} disabled={!on} />
-              </label>
-            ))}
-          </section>
+              <section className="stack">
+                <h3>2. Как из прогноза получается заказ</h3>
+                <ol className="waterfall">
+                  <li>
+                    <span>
+                      <span className="num">1</span>
+                      Прогноз модели
+                    </span>
+                    <strong>база</strong>
+                  </li>
+                  <li>
+                    <span>
+                      <span className="num">2</span>
+                      Страховой запас
+                    </span>
+                    <strong>+ 0.5σ</strong>
+                  </li>
+                  <li>
+                    <span>
+                      <span className="num">3</span>
+                      Остаток на складе
+                    </span>
+                    <strong>−</strong>
+                  </li>
+                  <li>
+                    <span>
+                      <span className="num">4</span>
+                      Уже в пути
+                    </span>
+                    <strong>−</strong>
+                  </li>
+                  <li>
+                    <span>
+                      <span className="num">5</span>
+                      Округление до MOQ
+                    </span>
+                    <strong>рек.</strong>
+                  </li>
+                </ol>
+                <p className="muted">{model.policy}</p>
+              </section>
 
-          <section className="stack">
-            <h3>3. Чувствительность к аномалиям</h3>
-            <input type="range" min={1} max={3} defaultValue={2} />
-            <p className="muted">IQR / p99 по расходным накладным. Клиентов в данных нет — ловим по номеру документа.</p>
-          </section>
+              <section className="stack">
+                <h3>3. Что здесь нельзя крутить</h3>
+                <p className="muted">
+                  Горизонт задаёт сама модель — месяц вперёд. Ползунки сезонности и аномалий заказ не пересчитывают: это уже внутри признаков.
+                  Количество правится в таблице, решение — у руководителя в приложении.
+                </p>
+              </section>
+            </>
+          ) : (
+            <p className="muted">Сначала загрузите выгрузку 1С — тогда здесь появится живая модель.</p>
+          )}
         </div>
 
         <footer>
           <button type="button" onClick={onClose} className="btn btn-primary">
-            Применить и пересчитать
-          </button>
-          <button type="button" onClick={onClose} className="btn">
-            Отмена
+            Понятно
           </button>
         </footer>
       </aside>
