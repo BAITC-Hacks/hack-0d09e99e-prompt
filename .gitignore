@@ -1,0 +1,11 @@
+# partner 1C dumps — never commit
+*.xlsx
+*.xls
+data/raw/
+.env
+__pycache__/
+.venv/
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+.DS_Store

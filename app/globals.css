@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sidebar-width: 16rem;
+    --header-height: 4rem;
+  }
+
+  html {
+    font-feature-settings: "tnum" 1, "cv05" 1, "cv11" 1;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    overscroll-behavior: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 20;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .shell-main {
+    margin-left: var(--sidebar-width);
+    padding-top: calc(var(--header-height) + 1.5rem);
+    min-height: 100vh;
+  }
+
+  .card {
+    @apply bg-card rounded-card shadow-card border border-line;
+  }
+
+  .label-caps {
+    @apply text-[11px] font-semibold uppercase tracking-[0.03em] text-ink-secondary;
+  }
+
+  .mono-sku {
+    @apply font-medium tracking-tight text-[13px] tabular-nums;
+    font-variant-numeric: tabular-nums;
+  }
+}
