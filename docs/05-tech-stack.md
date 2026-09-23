@@ -1,6 +1,6 @@
 # Технологический стек
 
-Код разложен по папкам: `frontend/` — Next.js, `backend/` — движок на pandas (`build_iek_bundle.py`). Загрузка Excel из веба вызывает этот скрипт. FastAPI — следующий шаг, когда подключится обучаемая модель.
+Код разложен по папкам: `frontend/` — Next.js, `backend/` — расчёт заказа по CatBoost (`run_workspace.py`, API `main.py`).
 
 ## Web ✅ (подтверждено)
 
