@@ -6,7 +6,7 @@ import pandas as pd
 
 
 # ============================================================
-# PATHS
+# CONFIG
 # ============================================================
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,11 +21,6 @@ SUPPLIERS = {
     "IEK": DATA_DIR / "IEK",
     "Systeme": DATA_DIR / "Systeme",
 }
-
-
-# ============================================================
-# MONTHS
-# ============================================================
 
 MONTHS = {
     "янв": 1,
@@ -44,7 +39,7 @@ MONTHS = {
 
 
 # ============================================================
-# FILE HELPERS
+# HELPERS
 # ============================================================
 
 def find_file(directory: Path, keyword: str) -> Path:
@@ -53,7 +48,7 @@ def find_file(directory: Path, keyword: str) -> Path:
             return path
 
     raise FileNotFoundError(
-        f"Не найден файл '{keyword}' в {directory}"
+        f"Не найден Excel '{keyword}' в {directory}"
     )
 
 
@@ -97,8 +92,7 @@ def detect_code_column(df):
             return col
 
     raise ValueError(
-        f"Не удалось найти SKU колонку. "
-        f"Колонки: {list(df.columns)}"
+        f"Не найдена колонка SKU: {list(df.columns)}"
     )
 
 
@@ -113,12 +107,11 @@ def detect_name_column(df):
 
 
 # ============================================================
-# LOAD MONTHLY EXCEL
+# LOAD MONTHLY DATA
 # ============================================================
 
 def load_monthly(path: Path, value_name: str):
-
-    print(f"Читаем: {path.name}")
+    print(f"Читаем: {path.name}", flush=True)
 
     df = pd.read_excel(
         path,
@@ -131,7 +124,6 @@ def load_monthly(path: Path, value_name: str):
     month_columns = {}
 
     for col in df.columns:
-
         parsed = parse_month_column(col)
 
         if parsed is not None:
@@ -161,20 +153,17 @@ def load_monthly(path: Path, value_name: str):
 
     long_df = long_df.rename(
         columns={
-            code_col: "sku"
+            code_col: "sku",
         }
     )
 
     if name_col:
-
         long_df = long_df.rename(
             columns={
-                name_col: "product_name"
+                name_col: "product_name",
             }
         )
-
     else:
-
         long_df["product_name"] = ""
 
     long_df["sku"] = (
@@ -183,7 +172,6 @@ def load_monthly(path: Path, value_name: str):
         .str.strip()
     )
 
-    # Убираем мусорные SKU
     long_df = long_df[
         (long_df["sku"] != "")
         & (long_df["sku"].str.lower() != "nan")
@@ -208,11 +196,10 @@ def load_monthly(path: Path, value_name: str):
 # LOAD SUPPLIER
 # ============================================================
 
-def load_supplier(supplier, directory):
-
-    print("\n" + "=" * 70)
-    print(f"SUPPLIER: {supplier}")
-    print("=" * 70)
+def load_supplier(supplier: str, directory: Path):
+    print("\n" + "=" * 70, flush=True)
+    print(f"SUPPLIER: {supplier}", flush=True)
+    print("=" * 70, flush=True)
 
     sales_file = find_file(
         directory,
@@ -234,10 +221,6 @@ def load_supplier(supplier, directory):
         "stock",
     )
 
-    # --------------------------------------------------------
-    # Sales aggregation
-    # --------------------------------------------------------
-
     sales = (
         sales.groupby(
             [
@@ -250,10 +233,6 @@ def load_supplier(supplier, directory):
         .sum()
     )
 
-    # --------------------------------------------------------
-    # Stock aggregation
-    # --------------------------------------------------------
-
     stock = (
         stock.groupby(
             [
@@ -264,10 +243,6 @@ def load_supplier(supplier, directory):
         )["stock"]
         .sum()
     )
-
-    # --------------------------------------------------------
-    # Merge
-    # --------------------------------------------------------
 
     df = sales.merge(
         stock,
@@ -280,17 +255,14 @@ def load_supplier(supplier, directory):
 
     df["supplier"] = supplier
 
-    # --------------------------------------------------------
-    # Returns
-    # --------------------------------------------------------
-
+    # Отрицательные значения сохраняем как возвраты.
     df["return_qty"] = np.where(
         df["sales_raw"] < 0,
         np.abs(df["sales_raw"]),
         0,
     )
 
-    # Отрицательный спрос невозможен.
+    # Отрицательного спроса для forecast быть не может.
     df["sales_positive"] = (
         df["sales_raw"]
         .clip(lower=0)
@@ -310,7 +282,6 @@ def load_supplier(supplier, directory):
 # ============================================================
 
 def correct_outliers(group):
-
     group = (
         group
         .sort_values("month")
@@ -322,15 +293,11 @@ def correct_outliers(group):
         .astype(float)
     )
 
-    # --------------------------------------------------------
-    # Rolling median
-    #
-    # Только прошлые месяцы.
-    # --------------------------------------------------------
+    # Используем только прошлое.
+    previous = sales.shift(1)
 
     rolling_median = (
-        sales
-        .shift(1)
+        previous
         .rolling(
             window=6,
             min_periods=3,
@@ -338,12 +305,7 @@ def correct_outliers(group):
         .median()
     )
 
-    # --------------------------------------------------------
-    # Rolling MAD
-    # --------------------------------------------------------
-
     def mad(values):
-
         median = np.median(values)
 
         return np.median(
@@ -353,8 +315,7 @@ def correct_outliers(group):
         )
 
     rolling_mad = (
-        sales
-        .shift(1)
+        previous
         .rolling(
             window=6,
             min_periods=3,
@@ -365,48 +326,35 @@ def correct_outliers(group):
         )
     )
 
-    # --------------------------------------------------------
-    # Outlier threshold
-    # --------------------------------------------------------
-
-    mad_limit = (
+    # Основной robust threshold.
+    mad_threshold = (
         rolling_median
         + 6 * rolling_mad
     )
 
-    # Если MAD равен 0, нужен fallback.
-    fallback_limit = np.maximum(
+    # Если MAD == 0.
+    fallback_threshold = np.maximum(
         rolling_median * 4,
         rolling_median + 10,
     )
 
-    upper_limit = mad_limit.copy()
+    threshold = mad_threshold.copy()
 
-    bad_mad = (
+    fallback_mask = (
         rolling_mad.isna()
         | (rolling_mad <= 0)
     )
 
-    upper_limit.loc[bad_mad] = (
-        fallback_limit.loc[bad_mad]
+    threshold.loc[fallback_mask] = (
+        fallback_threshold.loc[fallback_mask]
     )
 
-    # --------------------------------------------------------
-    # Flag
-    # --------------------------------------------------------
-
-    group["outlier_threshold"] = (
-        upper_limit
-    )
+    group["outlier_threshold"] = threshold
 
     group["outlier_flag"] = (
-        upper_limit.notna()
-        & (sales > upper_limit)
+        threshold.notna()
+        & (sales > threshold)
     ).astype(int)
-
-    # --------------------------------------------------------
-    # Correct
-    # --------------------------------------------------------
 
     corrected = sales.copy()
 
@@ -414,6 +362,7 @@ def correct_outliers(group):
         group["outlier_flag"] == 1
     )
 
+    # Аномальную продажу заменяем robust median.
     corrected.loc[outlier_mask] = (
         rolling_median.loc[outlier_mask]
     )
@@ -432,20 +381,13 @@ def correct_outliers(group):
 # ============================================================
 
 def correct_stockouts(group):
-
     group = (
         group
         .sort_values("month")
         .copy()
     )
 
-    # --------------------------------------------------------
-    # Expected demand
-    #
-    # Используем median последних 3 месяцев.
-    # Только прошлые месяцы.
-    # --------------------------------------------------------
-
+    # Ожидаемый спрос по предыдущим 3 месяцам.
     expected_demand = (
         group["sales_clean"]
         .shift(1)
@@ -461,17 +403,9 @@ def correct_stockouts(group):
         .fillna(0)
     )
 
-    # --------------------------------------------------------
-    # Stockout flag
-    # --------------------------------------------------------
-
     group["stockout_flag_v2"] = (
         stock <= 0
     ).astype(int)
-
-    # --------------------------------------------------------
-    # Lost demand
-    # --------------------------------------------------------
 
     expected_demand = (
         expected_demand
@@ -481,27 +415,21 @@ def correct_stockouts(group):
         .clip(lower=0)
     )
 
-    lost_demand = (
+    potential_lost = (
         expected_demand
         - group["sales_clean"]
     ).clip(lower=0)
 
-    stockout_mask = (
+    group["lost_demand_estimate"] = 0.0
+
+    mask = (
         group["stockout_flag_v2"] == 1
     )
 
-    group["lost_demand_estimate"] = 0.0
-
     group.loc[
-        stockout_mask,
-        "lost_demand_estimate"
-    ] = lost_demand.loc[
-        stockout_mask
-    ]
-
-    # --------------------------------------------------------
-    # Adjusted demand
-    # --------------------------------------------------------
+        mask,
+        "lost_demand_estimate",
+    ] = potential_lost.loc[mask]
 
     group["demand_adjusted"] = (
         group["sales_clean"]
@@ -512,13 +440,10 @@ def correct_stockouts(group):
 
 
 # ============================================================
-# SAFE GROUP PROCESSING
-#
-# Вместо groupby.apply(include_groups=False)
+# SAFE GROUP PROCESSOR
 # ============================================================
 
 def process_groups(df, function):
-
     parts = []
 
     grouped = df.groupby(
@@ -530,18 +455,16 @@ def process_groups(df, function):
     )
 
     for (supplier, sku), group_df in grouped:
-
-        corrected = function(
+        result = function(
             group_df.copy()
         )
 
-        # Гарантированно возвращаем ключи.
-        corrected["supplier"] = supplier
-        corrected["sku"] = sku
+        # pandas 3.x safe:
+        # явно возвращаем группировочные ключи.
+        result["supplier"] = supplier
+        result["sku"] = sku
 
-        parts.append(
-            corrected
-        )
+        parts.append(result)
 
     if not parts:
         return df.copy()
@@ -553,86 +476,82 @@ def process_groups(df, function):
 
 
 # ============================================================
-# FEATURES
+# FEATURE ENGINEERING
 # ============================================================
 
 def add_features(df):
-
-    # ========================================================
+    # --------------------------------------------------------
     # OUTLIERS
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("\nOutlier correction...")
+    print(
+        "\nOutlier correction...",
+        flush=True,
+    )
 
     df = process_groups(
         df,
         correct_outliers,
     )
 
-    outlier_count = int(
+    outliers = int(
         df["outlier_flag"].sum()
     )
 
-    outlier_percent = (
-        outlier_count
-        / len(df)
-        * 100
-    )
-
     print(
-        f"Найдено outlier-месяцев: "
-        f"{outlier_count:,}"
+        f"Найдено outlier-месяцев: {outliers:,}",
+        flush=True,
     )
 
     print(
         f"Доля outliers: "
-        f"{outlier_percent:.2f}%"
+        f"{outliers / len(df) * 100:.2f}%",
+        flush=True,
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # STOCKOUT
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("\nStockout correction...")
+    print(
+        "\nStockout correction...",
+        flush=True,
+    )
 
     df = process_groups(
         df,
         correct_stockouts,
     )
 
-    stockout_count = int(
+    stockouts = int(
         df["stockout_flag_v2"].sum()
     )
 
-    stockout_percent = (
-        stockout_count
-        / len(df)
-        * 100
-    )
-
-    lost_demand_total = (
+    lost_demand = (
         df["lost_demand_estimate"]
         .sum()
     )
 
     print(
-        f"Stockout observations: "
-        f"{stockout_count:,}"
+        f"Stockout observations: {stockouts:,}",
+        flush=True,
     )
 
     print(
         f"Доля stockouts: "
-        f"{stockout_percent:.2f}%"
+        f"{stockouts / len(df) * 100:.2f}%",
+        flush=True,
     )
 
     print(
         f"Estimated lost demand: "
-        f"{lost_demand_total:,.2f}"
+        f"{lost_demand:,.2f}",
+        flush=True,
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # SORT
-    # ========================================================
+    # --------------------------------------------------------
 
     df = (
         df.sort_values(
@@ -653,11 +572,14 @@ def add_features(df):
         group_keys=False,
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # LAGS
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("\nСоздаём lag features...")
+    print(
+        "\nСоздаём lag features...",
+        flush=True,
+    )
 
     for lag in [
         1,
@@ -666,17 +588,19 @@ def add_features(df):
         6,
         12,
     ]:
-
         df[f"demand_lag_{lag}"] = (
             group["demand_adjusted"]
             .shift(lag)
         )
 
-    # ========================================================
-    # ROLLING FEATURES
-    # ========================================================
+    # --------------------------------------------------------
+    # ROLLING
+    # --------------------------------------------------------
 
-    print("Создаём rolling features...")
+    print(
+        "Создаём rolling features...",
+        flush=True,
+    )
 
     df["rolling_mean_3"] = (
         group["demand_adjusted"]
@@ -743,11 +667,14 @@ def add_features(df):
         )
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # GROWTH
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("Создаём growth features...")
+    print(
+        "Создаём growth features...",
+        flush=True,
+    )
 
     denominator = (
         df["demand_lag_3"]
@@ -780,11 +707,14 @@ def add_features(df):
         )
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # CALENDAR
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("Создаём calendar features...")
+    print(
+        "Создаём calendar features...",
+        flush=True,
+    )
 
     df["year"] = (
         df["month"].dt.year
@@ -812,13 +742,16 @@ def add_features(df):
         / 12
     )
 
-    # ========================================================
-    # SKU SEASONALITY
-    # ========================================================
+    # --------------------------------------------------------
+    # SEASONALITY
+    # --------------------------------------------------------
 
-    print("Создаём seasonality features...")
+    print(
+        "Создаём seasonality features...",
+        flush=True,
+    )
 
-    # Среднее по всей предыдущей истории SKU.
+    # Среднее по предыдущей истории SKU.
     historical_mean = (
         group["demand_adjusted"]
         .transform(
@@ -831,7 +764,7 @@ def add_features(df):
         )
     )
 
-    # Среднее по конкретному месяцу года.
+    # История конкретного месяца года.
     month_history = (
         df.groupby(
             [
@@ -874,9 +807,9 @@ def add_features(df):
         .fillna(1.0)
     )
 
-    # ========================================================
-    # OUTLIER HISTORY FEATURES
-    # ========================================================
+    # --------------------------------------------------------
+    # PREVIOUS FLAGS
+    # --------------------------------------------------------
 
     df["outlier_lag_1"] = (
         group["outlier_flag"]
@@ -896,13 +829,9 @@ def add_features(df):
         .fillna(0)
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # TARGET
-    #
-    # ВАЖНО:
-    # модель учится прогнозировать скорректированный
-    # регулярный спрос следующего месяца.
-    # ========================================================
+    # --------------------------------------------------------
 
     df["target_next_month"] = (
         group["demand_adjusted"]
@@ -917,10 +846,365 @@ def add_features(df):
 # ============================================================
 
 def main():
+    print(
+        "\nQOR / ProcureAI",
+        flush=True,
+    )
 
-    print("\nQOR / ProcureAI")
-    print("PREPARE DATASET V2\n")
+    print(
+        "PREPARE DATASET V2\n",
+        flush=True,
+    )
 
     frames = []
 
-    # ========================================================
+    # --------------------------------------------------------
+    # LOAD SUPPLIERS
+    # --------------------------------------------------------
+
+    for supplier, directory in SUPPLIERS.items():
+        if not directory.exists():
+            raise FileNotFoundError(
+                f"Не найдена папка: {directory}"
+            )
+
+        supplier_df = load_supplier(
+            supplier,
+            directory,
+        )
+
+        frames.append(
+            supplier_df
+        )
+
+    # --------------------------------------------------------
+    # COMBINE
+    # --------------------------------------------------------
+
+    df = pd.concat(
+        frames,
+        ignore_index=True,
+    )
+
+    print(
+        f"\nИсходных строк: {len(df):,}",
+        flush=True,
+    )
+
+    print(
+        f"Уникальных SKU: "
+        f"{df['sku'].nunique():,}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FEATURES
+    # --------------------------------------------------------
+
+    df = add_features(df)
+
+    # --------------------------------------------------------
+    # TRAINING DATASET
+    # --------------------------------------------------------
+
+    training = df[        df["target_next_month"].notna()
+    ].copy()
+
+    # Для обучения требуем минимум 3 месяца истории.
+    training = training[
+        training["demand_lag_3"].notna()
+    ].copy()
+
+    training = (
+        training
+        .sort_values(
+            [
+                "supplier",
+                "sku",
+                "month",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    # --------------------------------------------------------
+    # SAVE DATASET
+    # --------------------------------------------------------
+
+    training.to_csv(
+        OUTPUT,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    # --------------------------------------------------------
+    # REPORT
+    # --------------------------------------------------------
+
+    print(
+        "\n" + "=" * 70,
+        flush=True,
+    )
+
+    print(
+        "DATASET V2 ГОТОВ",
+        flush=True,
+    )
+
+    print(
+        "=" * 70,
+        flush=True,
+    )
+
+    print(
+        f"Rows: {len(training):,}",
+        flush=True,
+    )
+
+    print(
+        f"SKU: {training['sku'].nunique():,}",
+        flush=True,
+    )
+
+    print(
+        f"Период: "
+        f"{training['month'].min().date()} "
+        f"→ "
+        f"{training['month'].max().date()}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # OUTLIERS
+    # --------------------------------------------------------
+
+    outliers = int(
+        training["outlier_flag"].sum()
+    )
+
+    print(
+        f"\nOutliers: {outliers:,}",
+        flush=True,
+    )
+
+    print(
+        f"Outlier rate: "
+        f"{outliers / len(training) * 100:.2f}%",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STOCKOUTS
+    # --------------------------------------------------------
+
+    stockouts = int(
+        training["stockout_flag_v2"].sum()
+    )
+
+    print(
+        f"Stockouts: {stockouts:,}",
+        flush=True,
+    )
+
+    print(
+        f"Stockout rate: "
+        f"{stockouts / len(training) * 100:.2f}%",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # LOST DEMAND
+    # --------------------------------------------------------
+
+    lost_demand = (
+        training["lost_demand_estimate"]
+        .sum()
+    )
+
+    print(
+        f"Estimated lost demand: "
+        f"{lost_demand:,.2f}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SUPPLIER STATS
+    # --------------------------------------------------------
+
+    print(
+        "\nПо поставщикам:",
+        flush=True,
+    )
+
+    supplier_stats = (
+        training
+        .groupby("supplier")
+        .agg(
+            rows=("sku", "size"),
+            skus=("sku", "nunique"),
+            raw_sales=("sales_positive", "sum"),
+            adjusted_demand=("demand_adjusted", "sum"),
+            outliers=("outlier_flag", "sum"),
+            stockouts=("stockout_flag_v2", "sum"),
+            lost_demand=("lost_demand_estimate", "sum"),
+        )
+    )
+
+    print(
+        supplier_stats.to_string(),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DEMAND STATISTICS
+    # --------------------------------------------------------
+
+    print(
+        "\nAdjusted demand statistics:",
+        flush=True,
+    )
+
+    print(
+        training[
+            "demand_adjusted"
+        ]
+        .describe()
+        .to_string(),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TARGET STATISTICS
+    # --------------------------------------------------------
+
+    print(
+        "\nTarget statistics:",
+        flush=True,
+    )
+
+    print(
+        training[
+            "target_next_month"
+        ]
+        .describe()
+        .to_string(),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TOP OUTLIERS
+    # --------------------------------------------------------
+
+    print(
+        "\nTOP-10 OUTLIERS:",
+        flush=True,
+    )
+
+    top_outliers = training[
+        training["outlier_flag"] == 1
+    ].copy()
+
+    if not top_outliers.empty:
+
+        top_outliers[
+            "outlier_difference"
+        ] = (
+            top_outliers["sales_positive"]
+            - top_outliers["sales_clean"]
+        )
+
+        top_outliers = (
+            top_outliers
+            .sort_values(
+                "outlier_difference",
+                ascending=False,
+            )
+            .head(10)
+        )
+
+        print(
+            top_outliers[
+                [
+                    "supplier",
+                    "sku",
+                    "month",
+                    "sales_positive",
+                    "sales_clean",
+                    "outlier_threshold",
+                ]
+            ]
+            .to_string(
+                index=False
+            ),
+            flush=True,
+        )
+
+    else:
+
+        print(
+            "Outliers не найдены.",
+            flush=True,
+        )
+
+    # --------------------------------------------------------
+    # TOP LOST DEMAND
+    # --------------------------------------------------------
+
+    print(
+        "\nTOP-10 LOST DEMAND:",
+        flush=True,
+    )
+
+    top_lost = (
+        training
+        .sort_values(
+            "lost_demand_estimate",
+            ascending=False,
+        )
+        .head(10)
+    )
+
+    print(
+        top_lost[
+            [
+                "supplier",
+                "sku",
+                "month",
+                "sales_clean",
+                "stock",
+                "lost_demand_estimate",
+                "demand_adjusted",
+            ]
+        ]
+        .to_string(
+            index=False
+        ),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL
+    # --------------------------------------------------------
+
+    print(
+        "\nФайл сохранён:",
+        flush=True,
+    )
+
+    print(
+        OUTPUT,
+        flush=True,
+    )
+
+    print(
+        "\nСледующий этап: CatBoost V2 training",
+        flush=True,
+    )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    main()
