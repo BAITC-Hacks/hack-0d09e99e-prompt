@@ -1,6 +1,7 @@
 // Runs the real HTTP client against a running backend:
 //   QOR_LIVE=http://127.0.0.1:8000 flutter test test/live_api_test.dart
-// Needs a calculated workspace and an order in `pending_approval`. Skipped otherwise.
+// Needs a calculated workspace. Walks the order draft → pending_approval → approved.
+// Skipped unless QOR_LIVE is set.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -19,15 +20,20 @@ void main() {
     expect(bundle, isNotNull);
     expect(bundle!.lines, isNotEmpty);
 
-    final order = await director.currentOrder();
+    final buyer = ApiQorRepository(baseUrl: base);
+    await buyer.login('aigerim', 'buyer');
+
+    var order = await director.currentOrder();
+    if (order.status != OrderStatus.pendingApproval) {
+      order = await buyer.submit(order.id);
+      expect(order.sentBy, 'Айгерим');
+    }
     expect(order.status, OrderStatus.pendingApproval);
 
     final line = bundle.lines.first;
     expect(await director.ask(line.code, 'Почему так много?'), isNotEmpty);
     expect(await director.series(line.code), isA<List<SeriesPoint>>());
 
-    final buyer = ApiQorRepository(baseUrl: base);
-    await buyer.login('aigerim', 'buyer');
     await expectLater(buyer.approve(order.id), throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)));
 
     final approved = await director.approve(order.id);

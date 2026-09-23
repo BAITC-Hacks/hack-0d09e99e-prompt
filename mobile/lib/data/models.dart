@@ -159,7 +159,8 @@ class Bundle {
       asOfLabel: j['asOfLabel'] as String? ?? j['asOf'] as String? ?? '—',
       supplier: j['supplier'] as String? ?? '—',
       warehouse: j['warehouse'] as String? ?? '—',
-      modelName: (j['model'] as Map<String, dynamic>?)?['name'] as String?,
+      modelName: (j['model'] as Map<String, dynamic>?)?['label'] as String? ??
+          (j['model'] as Map<String, dynamic>?)?['name'] as String?,
       kpis: Kpis.fromJson(j['kpis'] as Map<String, dynamic>? ?? const {}),
       lines: list('lines', SkuLine.fromJson),
       alerts: list('alerts', SkuLine.fromJson),
