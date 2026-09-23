@@ -453,11 +453,12 @@ def chat(
 
         if not assistant_message.tool_calls:
             return {
-                "answer":
-                    assistant_message.content,
-
-                "tools_used": [],
-            }
+                "answer": (
+                     "В предоставленном датасете QOR "
+                         "нет данных для ответа на этот вопрос."
+        ),
+        "tools_used": [],
+    }
 
         # ----------------------------------------------------
         # ADD ASSISTANT TOOL REQUEST
