@@ -34,7 +34,8 @@ if not OPENAI_API_KEY:
 # ============================================================
 
 client = OpenAI(
-    api_key=OPENAI_API_KEY
+    api_key=OPENAI_API_KEY,
+    timeout=30.0,
 )
 
 MODEL = "gpt-5.6"
@@ -111,8 +112,8 @@ TOOLS = [
             "name": "get_supplier_orders",
             "description": (
                 "Получить рекомендации закупки "
-                "по конкретному поставщику. "
-                "Поддерживаются IEK и Systeme."
+                "по поставщику текущего расчёта. "
+                "В загруженной выгрузке поставщик один."
             ),
             "parameters": {
                 "type": "object",
@@ -120,8 +121,7 @@ TOOLS = [
                     "supplier": {
                         "type": "string",
                         "description": (
-                            "Название поставщика: "
-                            "IEK или Systeme."
+                            "Название поставщика из текущего расчёта."
                         ),
                     },
                     "limit": {
@@ -213,32 +213,6 @@ TOOLS = [
 # TOOL EXECUTOR
 # ============================================================
 
-def compact_order(order: dict) -> dict:
-    """
-    Плоская проекция позиции для ответа модели.
-
-    Полный вложенный объект остаётся в REST-эндпоинтах,
-    а в чат уходят только поля, нужные для человеческого
-    ответа, — иначе модель вываливает весь JSON пользователю.
-    """
-    procurement = order.get("procurement") or {}
-    inventory = order.get("inventory") or {}
-    risk = order.get("risk") or {}
-    signals = order.get("signals") or {}
-    return {
-        "name": (order.get("product_name") or "").strip(),
-        "sku": order.get("sku"),
-        "recommended": procurement.get("recommended_order"),
-        "moq": procurement.get("moq"),
-        "forecast": order.get("forecast"),
-        "free_stock": inventory.get("free_stock"),
-        "incoming": inventory.get("incoming"),
-        "urgency": risk.get("urgency"),
-        "stockout_now": signals.get("stockout"),
-        "reason": order.get("reason"),
-    }
-
-
 def execute_tool(
     name: str,
     arguments: dict,
@@ -251,41 +225,31 @@ def execute_tool(
     """
 
     if name == "get_critical_orders":
-        return [
-            compact_order(order)
-            for order in get_critical_orders(
-                arguments.get(
-                    "limit",
-                    10,
-                )
-            )
-        ]
+        return get_critical_orders(
+            arguments.get("limit", 10)
+        )
 
     if name == "get_supplier_orders":
-        return [
-            compact_order(order)
-            for order in get_supplier_orders(
-                arguments["supplier"],
-                arguments.get(
-                    "limit",
-                    20,
-                ),
-            )
-        ]
+        supplier = arguments.get("supplier")
+        if not supplier:
+            return {"error": "Не указан поставщик"}
+        return get_supplier_orders(
+            supplier,
+            arguments.get("limit", 20),
+        )
 
     if name == "get_order_by_sku":
-        order = get_order_by_sku(
-            arguments["sku"]
-        )
-        if "error" in order:
-            return order
-        return compact_order(order)
+        sku = arguments.get("sku")
+        if not sku:
+            return {"error": "Не указан SKU"}
+        return get_order_by_sku(sku)
 
     if name == "simulate_order":
-        return simulate_order(
-            arguments["sku"],
-            arguments["quantity"],
-        )
+        sku = arguments.get("sku")
+        quantity = arguments.get("quantity")
+        if not sku or quantity is None:
+            return {"error": "Нужны SKU и количество"}
+        return simulate_order(sku, int(quantity))
 
     return {
         "error": (
@@ -670,12 +634,10 @@ def chat(
             flush=True,
         )
 
+        # Текст исключения наружу не отдаём: в нём пути и внутренности.
         raise HTTPException(
             status_code=500,
-            detail=(
-                f"Ошибка QOR: "
-                f"{str(error)}"
-            ),
+            detail="Ошибка QOR. Подробности — в логе сервера.",
         )
 
 
