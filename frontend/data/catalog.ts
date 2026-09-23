@@ -83,19 +83,19 @@ export type WorkspaceBundle = {
 export function metaFrom(bundle: WorkspaceBundle) {
   return {
     asOf: bundle.asOf ?? "",
-    asOfLabel: bundle.asOfLabel ?? "нет выгрузки",
-    supplier: bundle.supplier ?? "—",
-    warehouse: bundle.warehouse ?? "—",
-    horizonWeeks: bundle.horizonWeeks ?? 8,
-    seasonOct: bundle.seasonOct ?? 1,
-    monthEquiv: bundle.monthEquiv ?? 2,
+    asOfLabel: bundle.asOfLabel ?? "",
+    supplier: bundle.supplier ?? "",
+    warehouse: bundle.warehouse ?? "",
+    horizonWeeks: bundle.horizonWeeks ?? 0,
+    seasonOct: bundle.seasonOct ?? 0,
+    monthEquiv: bundle.monthEquiv ?? 0,
     seasonParts: bundle.seasonParts ?? [],
   };
 }
 
 export function peakSeasonFrom(bundle: WorkspaceBundle) {
   const parts = bundle.seasonParts ?? [];
-  if (!parts.length) return { month: "—", share: 0, coef: 1 };
+  if (!parts.length) return null;
   return parts.reduce((a, b) => (b.coef > a.coef ? b : a));
 }
 

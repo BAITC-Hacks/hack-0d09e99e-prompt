@@ -40,47 +40,38 @@ export function ImportPanel() {
   }
 
   return (
-    <section className="card mx-auto max-w-2xl p-8">
-      <Logo className="mb-4 h-12 w-12 text-primary" />
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">Загрузите выгрузку 1С</h1>
-      <p className="mt-2 text-[13px] text-ink-secondary">
+    <section className="card import">
+      <Logo title="" />
+      <h1>Загрузите выгрузку 1С</h1>
+      <p className="lede">
         Qor не хранит чужой каталог внутри продукта. Менеджер выгружает Excel из 1С — отсюда считаются заказы.
         Модель дообучается отдельно; этот шаг только принимает файлы и запускает расчёт.
       </p>
-      <ul className="mt-4 grid grid-cols-2 gap-2 text-xs text-ink-secondary">
+      <ul className="slots">
         {slots.map((s) => (
-          <li key={s} className="rounded-lg border border-line bg-surface-low/50 px-3 py-2">
-            {s}
-          </li>
+          <li key={s}>{s}</li>
         ))}
       </ul>
       <form
-        className="mt-6 flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          const form = new FormData(e.currentTarget);
-          void send(form);
+          void send(new FormData(e.currentTarget));
         }}
       >
-        <label className="block">
-          <span className="sr-only">Файлы xlsx</span>
-          <input name="files" type="file" accept=".xlsx,.xls" multiple required className="w-full text-[13px]" />
+        <label>
+          <span className="skip">Файлы xlsx</span>
+          <input name="files" type="file" accept=".xlsx,.xls" multiple required />
         </label>
-        <div className="flex flex-wrap gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50">
+        <div className="actions">
+          <button type="submit" disabled={busy} className="btn btn-primary">
             {busy ? "Считаем…" : "Посчитать заказы"}
           </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void send(null, true)}
-            className="rounded-lg border border-line px-4 py-2 text-[13px] font-medium text-ink"
-          >
+          <button type="button" disabled={busy} className="btn" onClick={() => void send(null, true)}>
             Демо: выгрузка IEK с диска
           </button>
         </div>
       </form>
-      {error ? <p className="mt-3 text-sm text-status-critical">{error}</p> : null}
+      {error ? <p className="error">{error}</p> : null}
     </section>
   );
 }

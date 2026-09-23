@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState } from "react";
-import type { WorkspaceBundle } from "@/app/data/catalog";
+import type { WorkspaceBundle } from "@/data/catalog";
 
 type Ctx = {
   bundle: WorkspaceBundle | null;

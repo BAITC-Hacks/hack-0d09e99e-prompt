@@ -10,14 +10,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div>
-      <a href="#content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70] focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-white">
+      <a href="#content" className="skip">
         К содержимому
       </a>
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
       <Topbar onOpenSettings={() => setSettingsOpen(true)} />
-      <main id="content" className="shell-main px-6 pb-8">
-        {children}
-      </main>
+      <main id="content">{children}</main>
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

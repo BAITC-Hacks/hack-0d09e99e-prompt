@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { AppShell } from "./components/AppShell";
-import { WorkspaceProvider } from "./components/WorkspaceProvider";
-import { readWorkspace } from "./data/workspace";
+import { AppShell } from "@/components/AppShell";
+import { WorkspaceProvider } from "@/components/WorkspaceProvider";
+import { readWorkspace } from "@/data/workspace";
 import "./globals.css";
 
 const inter = Inter({
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=swap"
         />
       </head>
-      <body className="font-sans">
+      <body>
         <WorkspaceProvider initial={initial}>
           <AppShell>{children}</AppShell>
         </WorkspaceProvider>

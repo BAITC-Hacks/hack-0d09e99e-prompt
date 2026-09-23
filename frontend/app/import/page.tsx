@@ -1,7 +1,5 @@
-"use client";
+import { ImportPanel } from "@/components/ImportPanel";
 
-import { ImportPanel } from "../components/ImportPanel";
-
-export default function ImportPage() {
+export default function Page() {
   return <ImportPanel />;
 }
