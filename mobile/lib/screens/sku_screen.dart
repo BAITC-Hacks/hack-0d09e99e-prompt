@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../data/explain.dart';
 import '../data/format.dart';
 import '../data/models.dart';
 import '../data/providers.dart';
@@ -22,7 +21,8 @@ class SkuScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final anomaly = bundle.anomalyFor(line.code);
-    final why = Explain(line, anomaly, season: bundle.season, horizonWeeks: bundle.horizonWeeks);
+    final answer = ref.watch(skuAnswerProvider(line.code));
+    final series = ref.watch(skuSeriesProvider(line.code));
 
     return Scaffold(
       appBar: AppBar(title: Text(line.article, style: Qc.mono.copyWith(fontSize: 17, color: Qc.ink))),
@@ -37,7 +37,13 @@ class SkuScreen extends ConsumerWidget {
                 style: const TextStyle(color: Qc.inkSecondary, fontSize: 13)),
           ]),
           const SizedBox(height: 16),
-          QCard(child: MiniChart(bundle: bundle, line: line)),
+          QCard(
+            child: series.when(
+              data: (p) => MiniChart(points: p, stockoutNow: line.stockoutNow),
+              loading: () => const SizedBox(height: 72, child: Center(child: CircularProgressIndicator())),
+              error: (e, _) => Text('$e', style: const TextStyle(color: Qc.inkMuted)),
+            ),
+          ),
           const SizedBox(height: 12),
           QCard(
             child: Row(children: [
@@ -59,7 +65,10 @@ class SkuScreen extends ConsumerWidget {
             Text('Поставка: ${line.inTransitEta}', style: const TextStyle(fontSize: 13, color: Qc.inkSecondary)),
           ],
           const SizedBox(height: 12),
-          InsightBox(title: 'Почему ${fmtQty(line.recommended)} ${line.unit}', text: why.blurb),
+          InsightBox(
+            title: 'Почему ${fmtQty(line.recommended)} ${line.unit}',
+            text: answer.when(data: (t) => t, loading: () => 'Спрашиваю модель…', error: (e, _) => '$e'),
+          ),
           if (anomaly != null) ...[
             const SizedBox(height: 12),
             QCard(

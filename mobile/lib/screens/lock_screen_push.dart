@@ -22,7 +22,7 @@ class LockScreenPush extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
-    final order = ref.watch(orderProvider);
+    final sentBy = ref.watch(orderProvider).value?.sentBy;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -79,7 +79,7 @@ class LockScreenPush extends ConsumerWidget {
                             Text('Заказ ${bundle.supplier} ждёт утверждения',
                                 style: const TextStyle(fontWeight: FontWeight.w600, color: Qc.ink)),
                             Text(
-                              '${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично · от ${order.sentBy}',
+                              '${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично${sentBy != null ? ' · от $sentBy' : ''}',
                               style: const TextStyle(color: Qc.ink, height: 1.3),
                             ),
                           ]),

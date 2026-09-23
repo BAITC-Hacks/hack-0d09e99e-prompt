@@ -35,18 +35,23 @@ flutter test         # расчётные тексты + прогон всех �
 | `POST /v1/orders/iek-current/approve` | director | | статус `approved` |
 | `POST /v1/orders/iek-current/return` | director | `{ "comment" }` | статус `returned` |
 | `POST /v1/sku/{code}/ask` | все | `{ "question" }` | `{ code, answer }` |
-| `GET /v1/sku/{code}/series` | все | | `{ code, points }` — пока пустой ряд, мини-график остаётся на оценке |
+| `GET /v1/sku/{code}/series` | все | | `{ code, points }` — пока пустой ряд, на карточке «истории в API пока нет» |
 
-404 на бандле значит, что расчёт ещё не записан в `backend/data/workspace.json` (загрузка на сайте). Пока файла нет, `MockQorRepository` по-прежнему читает `assets/data/iek.json`.
+404 на бандле значит, что расчёт ещё не записан в `backend/data/workspace.json` (загрузка на сайте) — приложение показывает «Выгрузки 1С ещё нет».
 
-HTTP-клиент: реализовать `QorRepository` (`lib/data/repository.dart`) и подменить `repositoryProvider` в `lib/data/providers.dart`. Экраны не трогаются. `approve` / `return` с чужой роли отвечают 403, повторное утверждение — 409.
+Клиент: `ApiQorRepository` (`lib/data/repository.dart`), моков в приложении нет. Адрес по умолчанию `http://127.0.0.1:8000`
+(Android-эмулятор — `10.0.2.2:8000`); для телефона в той же Wi-Fi: `flutter run --dart-define=QOR_API=http://<IP мака>:8000`.
+Статус заказа опрашивается каждые 20 с и по pull-to-refresh. `approve` / `return` с чужой роли — 403, повторное утверждение — 409: приложение показывает текст ошибки из `detail`.
+
+Тесты: `flutter test` (фейковый API только в `test/fake_repository.dart`). Проверка против живого бэка:
+`QOR_LIVE=http://127.0.0.1:8000 flutter test test/live_api_test.dart` (нужен расчёт и заказ `pending_approval`).
 
 ## Структура
 
 ```
 lib/
   theme/     токены (как в tailwind.config.ts) и тема Material 3
-  data/      модели, мок-репозиторий, провайдеры riverpod, тексты обоснований
+  data/      модели API, HTTP-клиент, провайдеры riverpod
   widgets/   бейджи срочности, карточка позиции, мини-график
-  screens/   главная, заказ, карточка SKU, чат, уведомления, пуш-макет, профиль
+  screens/   вход, главная, заказ, карточка SKU, чат, уведомления, пуш-макет, профиль
 ```

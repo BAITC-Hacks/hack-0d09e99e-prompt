@@ -1,21 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../data/explain.dart';
 import '../data/format.dart';
 import '../data/models.dart';
+import '../data/why.dart';
 import '../theme/tokens.dart';
 import 'common.dart';
 
 class PositionCard extends StatelessWidget {
-  const PositionCard({super.key, required this.bundle, required this.line, this.onTap});
+  const PositionCard({super.key, required this.line, this.onTap});
 
-  final Bundle bundle;
   final SkuLine line;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final why = Explain(line, bundle.anomalyFor(line.code), season: bundle.season, horizonWeeks: bundle.horizonWeeks);
     return QCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -52,7 +50,9 @@ class PositionCard extends StatelessWidget {
             const Padding(padding: EdgeInsets.only(top: 1), child: Icon(Icons.auto_awesome, size: 14, color: Qc.ai)),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(why.short, style: const TextStyle(fontSize: 12, color: Qc.inkSecondary, height: 1.35)),
+              child: Text(whyShort(line),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Qc.inkSecondary, height: 1.35)),
             ),
           ]),
         ],

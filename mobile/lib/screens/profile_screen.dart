@@ -14,36 +14,44 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(roleProvider);
+    final user = ref.watch(authProvider)!;
+    final director = user.role == UserRole.director;
     return Scaffold(
       appBar: AppBar(title: const Text('Профиль')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
-          const SectionLabel('Роль'),
           QCard(
-            padding: EdgeInsets.zero,
-            child: RadioGroup<Role>(
-              groupValue: role,
-              onChanged: (r) => ref.read(roleProvider.notifier).set(r ?? role),
-              child: Column(children: [
-                for (final r in Role.values)
-                  RadioListTile<Role>(
-                    value: r,
-                    title: Text('${r.title} · ${r.person}'),
-                    subtitle: Text(r == Role.director ? 'Утверждает или возвращает заказ' : 'Смотрит риски вне офиса'),
-                  ),
-              ]),
-            ),
+            child: Row(children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: Qc.primaryFixed,
+                child: Text(user.name.characters.first,
+                    style: const TextStyle(color: Qc.primary, fontWeight: FontWeight.w700, fontSize: 20)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(user.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                  Text('${user.title} · ${user.username}', style: const TextStyle(color: Qc.inkSecondary)),
+                ]),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            director ? 'Утверждаете или возвращаете заказ.' : 'Отправляете заказ на согласование. Правки — на сайте.',
+            style: const TextStyle(color: Qc.inkSecondary),
           ),
           const SectionLabel('Данные'),
           QCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               _Row('Склад', bundle.warehouse),
               _Row('Поставщик', bundle.supplier),
-              _Row('Выгрузка 1С', '${ddmm(bundle.asOf)}.${bundle.asOf.year}'),
-              _Row('SKU в расчёте', fmtQty(bundle.kpis.skuTotal)),
-              const _Row('Источник', 'демо-данные (API в работе)'),
+              _Row('Выгрузка 1С', bundle.asOfLabel),
+              _Row('Позиций к заказу', fmtQty(bundle.kpis.toOrder)),
+              if (bundle.modelName != null) _Row('Модель спроса', bundle.modelName!),
+              _Row('Сервер', ref.read(repositoryProvider).baseUrl),
             ]),
           ),
           const SizedBox(height: 16),
@@ -55,12 +63,20 @@ class ProfileScreen extends ConsumerWidget {
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () {
-              ref.read(orderProvider.notifier).resetDemo();
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Заказ снова на согласовании')));
+              ref.invalidate(bundleProvider);
+              ref.read(orderProvider.notifier).refresh();
             },
-            icon: const Icon(Icons.restart_alt),
-            label: const Text('Сбросить демо'),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Обновить данные'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () {
+              ref.read(tabProvider.notifier).go(0);
+              ref.read(authProvider.notifier).logout();
+            },
+            icon: const Icon(Icons.logout, color: Qc.critical),
+            label: const Text('Выйти', style: TextStyle(color: Qc.critical)),
           ),
         ],
       ),
@@ -79,8 +95,8 @@ class _Row extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
           Text(label, style: const TextStyle(color: Qc.inkSecondary)),
-          const Spacer(),
-          Flexible(child: Text(value, textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w600))),
+          const SizedBox(width: 12),
+          Expanded(child: Text(value, textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w600))),
         ]),
       );
 }

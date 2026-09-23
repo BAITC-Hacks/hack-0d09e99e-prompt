@@ -1,3 +1,6 @@
+/// Wire models for the Qor API (backend/main.py). Field names follow the JSON.
+library;
+
 enum Urgency {
   critical('Критично'),
   warning('Скоро'),
@@ -14,6 +17,25 @@ enum Urgency {
 }
 
 double _d(Object? v) => (v as num?)?.toDouble() ?? 0;
+double? _dn(Object? v) => (v as num?)?.toDouble();
+DateTime? _date(Object? v) => v is String ? DateTime.tryParse(v)?.toLocal() : null;
+
+/// One step of the engine's calculation, e.g. forecast, safety stock, stock, MOQ.
+class CalcStep {
+  const CalcStep({required this.key, required this.label, this.value, this.delta});
+
+  factory CalcStep.fromJson(Map<String, dynamic> j) => CalcStep(
+        key: j['key'] as String? ?? '',
+        label: j['label'] as String? ?? '',
+        value: _dn(j['value']),
+        delta: _dn(j['delta']),
+      );
+
+  final String key;
+  final String label;
+  final double? value;
+  final double? delta;
+}
 
 class SkuLine {
   const SkuLine({
@@ -23,39 +45,33 @@ class SkuLine {
     required this.unit,
     required this.stock,
     required this.stockoutNow,
-    required this.emptyMonths,
     required this.daysLeft,
     required this.inTransit,
     required this.inTransitEta,
     required this.demandMonth,
-    required this.demandWeek,
-    required this.forecast8w,
-    required this.lostDemand,
     required this.recommended,
     required this.moq,
     required this.urgency,
     required this.category,
+    required this.steps,
   });
 
   factory SkuLine.fromJson(Map<String, dynamic> j) => SkuLine(
         code: j['code'] as String,
-        article: j['article'] as String,
-        name: (j['name'] as String).trim(),
+        article: j['article'] as String? ?? j['code'] as String,
+        name: (j['name'] as String? ?? '').trim(),
         unit: j['unit'] as String? ?? 'шт',
         stock: _d(j['stock']),
         stockoutNow: j['stockoutNow'] as bool? ?? false,
-        emptyMonths: (j['emptyMonths'] as num?)?.toInt() ?? 0,
         daysLeft: (j['daysLeft'] as num?)?.toInt() ?? 0,
         inTransit: _d(j['inTransit']),
         inTransitEta: j['inTransitEta'] as String?,
         demandMonth: _d(j['demandMonth']),
-        demandWeek: _d(j['demandWeek']),
-        forecast8w: _d(j['forecast8w']),
-        lostDemand: _d(j['lostDemand']),
         recommended: _d(j['recommended']),
         moq: _d(j['moq']),
         urgency: Urgency.parse(j['urgency'] as String?),
         category: j['category'] as String? ?? 'Прочее',
+        steps: ((j['steps'] as List?) ?? const []).cast<Map<String, dynamic>>().map(CalcStep.fromJson).toList(),
       );
 
   final String code;
@@ -64,64 +80,36 @@ class SkuLine {
   final String unit;
   final double stock;
   final bool stockoutNow;
-  final int emptyMonths;
   final int daysLeft;
   final double inTransit;
   final String? inTransitEta;
   final double demandMonth;
-  final double demandWeek;
-  final double forecast8w;
-  final double lostDemand;
   final double recommended;
   final double moq;
   final Urgency urgency;
   final String category;
+  final List<CalcStep> steps;
+
+  /// The engine uses 9999 for "enough stock / no demand".
+  bool get hasDaysLeft => daysLeft > 0 && daysLeft < 9999;
 }
 
 class Anomaly {
-  const Anomaly({
-    required this.date,
-    required this.invoice,
-    required this.article,
-    required this.code,
-    required this.name,
-    required this.qty,
-    required this.median,
-    required this.reason,
-  });
+  const Anomaly({required this.invoice, required this.code, required this.qty, required this.date});
 
   factory Anomaly.fromJson(Map<String, dynamic> j) => Anomaly(
-        date: j['date'] as String,
-        invoice: j['invoice'] as String,
-        article: j['article'] as String,
-        code: j['code'] as String,
-        name: j['name'] as String,
+        invoice: j['invoice'] as String? ?? '',
+        code: j['code'] as String? ?? '',
         qty: _d(j['qty']),
-        median: _d(j['median']),
-        reason: j['reason'] as String? ?? '',
+        date: j['date'] as String? ?? '',
       );
 
-  final String date;
   final String invoice;
-  final String article;
   final String code;
-  final String name;
   final double qty;
-  final double median;
-  final String reason;
+  final String date;
 
   String get day => date.length >= 10 ? date.substring(0, 10) : date;
-}
-
-class SeriesPoint {
-  const SeriesPoint({required this.year, required this.month, required this.coef});
-
-  factory SeriesPoint.fromJson(Map<String, dynamic> j) =>
-      SeriesPoint(year: (j['year'] as num).toInt(), month: j['month'] as String, coef: _d(j['coef']));
-
-  final int year;
-  final String month;
-  final double coef;
 }
 
 class Kpis {
@@ -135,12 +123,12 @@ class Kpis {
   });
 
   factory Kpis.fromJson(Map<String, dynamic> j) => Kpis(
-        toOrder: (j['toOrder'] as num).toInt(),
-        critical: (j['critical'] as num).toInt(),
-        deficit: (j['deficit'] as num).toInt(),
-        inboundSku: (j['inboundSku'] as num).toInt(),
+        toOrder: (j['toOrder'] as num?)?.toInt() ?? 0,
+        critical: (j['critical'] as num?)?.toInt() ?? 0,
+        deficit: (j['deficit'] as num?)?.toInt() ?? 0,
+        inboundSku: (j['inboundSku'] as num?)?.toInt() ?? 0,
         inboundQty: _d(j['inboundQty']),
-        skuTotal: (j['skuTotal'] as num).toInt(),
+        skuTotal: (j['skuTotal'] as num?)?.toInt() ?? 0,
       );
 
   final int toOrder;
@@ -151,57 +139,46 @@ class Kpis {
   final int skuTotal;
 }
 
-class Inbound {
-  const Inbound({required this.eta, required this.positions, required this.qty});
-  final String eta;
-  final int positions;
-  final double qty;
-}
-
-/// Everything the mobile app needs for one supplier order. Mirrors app/data/iek.json.
+/// `GET /v1/bundle` — the order the engine calculated from the latest 1C upload.
 class Bundle {
   Bundle({
-    required this.asOf,
+    required this.asOfLabel,
     required this.supplier,
     required this.warehouse,
-    required this.horizonWeeks,
-    required this.season,
+    required this.modelName,
     required this.kpis,
     required this.lines,
     required this.alerts,
     required this.anomalies,
-    required this.series,
   });
 
   factory Bundle.fromJson(Map<String, dynamic> j) {
     List<T> list<T>(String k, T Function(Map<String, dynamic>) f) =>
-        (j[k] as List).cast<Map<String, dynamic>>().map(f).toList();
+        ((j[k] as List?) ?? const []).cast<Map<String, dynamic>>().map(f).toList();
     return Bundle(
-      asOf: DateTime.parse(j['asOf'] as String),
-      supplier: j['supplier'] as String,
-      warehouse: j['warehouse'] as String,
-      horizonWeeks: (j['horizonWeeks'] as num).toInt(),
-      season: _d(j['seasonOct']),
-      kpis: Kpis.fromJson(j['kpis'] as Map<String, dynamic>),
+      asOfLabel: j['asOfLabel'] as String? ?? j['asOf'] as String? ?? '—',
+      supplier: j['supplier'] as String? ?? '—',
+      warehouse: j['warehouse'] as String? ?? '—',
+      modelName: (j['model'] as Map<String, dynamic>?)?['name'] as String?,
+      kpis: Kpis.fromJson(j['kpis'] as Map<String, dynamic>? ?? const {}),
       lines: list('lines', SkuLine.fromJson),
       alerts: list('alerts', SkuLine.fromJson),
       anomalies: list('anomalies', Anomaly.fromJson),
-      series: list('series', SeriesPoint.fromJson),
     );
   }
 
-  final DateTime asOf;
+  final String asOfLabel;
   final String supplier;
   final String warehouse;
-  final int horizonWeeks;
-  final double season;
+  final String? modelName;
   final Kpis kpis;
   final List<SkuLine> lines;
   final List<SkuLine> alerts;
   final List<Anomaly> anomalies;
-  final List<SeriesPoint> series;
 
-  late final Map<String, SkuLine> _byCode = {for (final l in lines) l.code: l};
+  late final List<SkuLine> sortedLines = [
+    for (final u in Urgency.values) ...lines.where((l) => l.urgency == u),
+  ];
 
   late final Map<String, Anomaly> _anomalyByCode = () {
     final m = <String, Anomaly>{};
@@ -212,73 +189,82 @@ class Bundle {
     return m;
   }();
 
-  late final List<SkuLine> sortedLines = [
-    for (final u in Urgency.values) ...lines.where((l) => l.urgency == u),
-  ];
-
-  late final List<Inbound> inbound = () {
-    final m = <String, Inbound>{};
-    for (final l in lines.where((l) => l.inTransit > 0 && l.inTransitEta != null)) {
-      final p = m[l.inTransitEta!];
-      m[l.inTransitEta!] = Inbound(
-        eta: l.inTransitEta!,
-        positions: (p?.positions ?? 0) + 1,
-        qty: (p?.qty ?? 0) + l.inTransit,
-      );
-    }
-    return m.values.toList()..sort((a, b) => b.qty.compareTo(a.qty));
-  }();
-
-  SkuLine? byCode(String code) => _byCode[code];
   Anomaly? anomalyFor(String code) => _anomalyByCode[code];
   int count(Urgency u) => lines.where((l) => l.urgency == u).length;
+}
 
-  /// SKU whose stock runs out before a new IEK delivery could arrive.
-  int get runsOutBeforeDelivery => lines.where((l) => l.urgency == Urgency.critical).length;
+/// `GET /v1/sku/{code}/series` point. The backend has not fixed the shape yet,
+/// so common key names are accepted.
+class SeriesPoint {
+  const SeriesPoint({required this.label, required this.value});
+
+  factory SeriesPoint.fromJson(Map<String, dynamic> j) => SeriesPoint(
+        label: '${j['label'] ?? j['month'] ?? j['period'] ?? ''}',
+        value: _d(j['value'] ?? j['qty'] ?? j['sales'] ?? j['demand']),
+      );
+
+  final String label;
+  final double value;
 }
 
 enum OrderStatus {
-  draft('Черновик'),
-  pendingApproval('На согласовании'),
-  approved('Утверждено'),
-  returned('На доработке');
+  draft('draft', 'Черновик'),
+  pendingApproval('pending_approval', 'На согласовании'),
+  approved('approved', 'Утверждено'),
+  returned('returned', 'На доработке');
 
-  const OrderStatus(this.label);
+  const OrderStatus(this.wire, this.label);
+  final String wire;
   final String label;
+
+  static OrderStatus parse(String? s) => values.firstWhere((v) => v.wire == s, orElse: () => draft);
 }
 
+/// `GET /v1/orders/current`.
 class OrderState {
   const OrderState({
+    required this.id,
     required this.status,
-    required this.sentBy,
-    required this.sentAt,
+    this.sentBy,
+    this.sentAt,
+    this.decidedBy,
     this.decidedAt,
     this.comment,
-    this.busy = false,
   });
 
+  factory OrderState.fromJson(Map<String, dynamic> j) => OrderState(
+        id: j['id'] as String? ?? 'iek-current',
+        status: OrderStatus.parse(j['status'] as String?),
+        sentBy: j['sentBy'] as String?,
+        sentAt: _date(j['sentAt']),
+        decidedBy: j['decidedBy'] as String?,
+        decidedAt: _date(j['decidedAt']),
+        comment: j['comment'] as String?,
+      );
+
+  final String id;
   final OrderStatus status;
-  final String sentBy;
-  final DateTime sentAt;
+  final String? sentBy;
+  final DateTime? sentAt;
+  final String? decidedBy;
   final DateTime? decidedAt;
   final String? comment;
-  final bool busy;
-
-  OrderState copyWith({OrderStatus? status, DateTime? decidedAt, String? comment, bool? busy}) => OrderState(
-        status: status ?? this.status,
-        sentBy: sentBy,
-        sentAt: sentAt,
-        decidedAt: decidedAt ?? this.decidedAt,
-        comment: comment ?? this.comment,
-        busy: busy ?? this.busy,
-      );
 }
 
-enum Role {
-  director('Руководитель', 'Данияр'),
-  buyer('Менеджер закупа', 'Айгерим');
+enum UserRole { buyer, director }
 
-  const Role(this.title, this.person);
+class User {
+  const User({required this.username, required this.role, required this.name, required this.title});
+
+  factory User.fromJson(Map<String, dynamic> j) => User(
+        username: j['username'] as String,
+        role: j['role'] == 'director' ? UserRole.director : UserRole.buyer,
+        name: j['name'] as String? ?? j['username'] as String,
+        title: j['title'] as String? ?? '',
+      );
+
+  final String username;
+  final UserRole role;
+  final String name;
   final String title;
-  final String person;
 }

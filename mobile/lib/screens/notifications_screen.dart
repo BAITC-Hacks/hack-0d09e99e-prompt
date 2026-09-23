@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../data/explain.dart';
 import '../data/format.dart';
 import '../data/models.dart';
 import '../data/providers.dart';
@@ -17,74 +16,100 @@ class NotificationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final order = ref.watch(orderProvider);
+    final order = ref.watch(orderProvider).value;
+    final director = ref.watch(authProvider)?.role == UserRole.director;
+
     void openOrder() {
       ref.read(urgencyFilterProvider.notifier).set(null);
       ref.read(tabProvider.notifier).go(1);
     }
 
+    String alertTitle(SkuLine l) {
+      if (l.stockoutNow) return '${l.article}: нет на складе';
+      if (l.hasDaysLeft) return '${l.article}: остатка на ${l.daysLeft} дн.';
+      return '${l.article}: запас ниже половины месячного прогноза';
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Уведомления')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-        children: [
-          QCard(
-            color: Qc.ink,
-            borderColor: Qc.ink,
-            onTap: () => Navigator.of(context).push(LockScreenPush.route(bundle)),
-            child: const Row(children: [
-              Icon(Icons.phone_iphone, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text('Демо: пуш на экране блокировки',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(bundleProvider);
+          await ref.read(orderProvider.notifier).refresh();
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          children: [
+            QCard(
+              color: Qc.ink,
+              borderColor: Qc.ink,
+              onTap: () => Navigator.of(context).push(LockScreenPush.route(bundle)),
+              child: const Row(children: [
+                Icon(Icons.phone_iphone, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text('Демо: пуш на экране блокировки',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                ),
+                Icon(Icons.play_arrow_rounded, color: Colors.white),
+              ]),
+            ),
+            if (order != null && order.status == OrderStatus.pendingApproval && director) ...[
+              const SectionLabel('Ждёт решения'),
+              _Notice(
+                color: Qc.accent,
+                bg: Qc.primaryFixed.withValues(alpha: 0.4),
+                icon: Icons.fact_check_outlined,
+                title: 'Заказ поставщику ${bundle.supplier} готов к утверждению',
+                body: '${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично'
+                    '${order.sentBy != null ? ' · от ${order.sentBy}' : ''}',
+                cta: 'Рассмотреть',
+                onTap: openOrder,
               ),
-              Icon(Icons.play_arrow_rounded, color: Colors.white),
-            ]),
-          ),
-          if (order.status == OrderStatus.pendingApproval) ...[
-            const SectionLabel('Ждёт решения'),
-            _Notice(
-              color: Qc.accent,
-              bg: Qc.primaryFixed.withValues(alpha: 0.4),
-              icon: Icons.fact_check_outlined,
-              title: 'Заказ поставщику ${bundle.supplier} готов к утверждению',
-              body: '${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично · от ${order.sentBy}',
-              cta: 'Рассмотреть',
-              onTap: openOrder,
-            ),
+            ],
+            if (order != null && order.status == OrderStatus.returned && !director) ...[
+              const SectionLabel('Ждёт решения'),
+              _Notice(
+                color: Qc.critical,
+                bg: Qc.criticalBg,
+                icon: Icons.undo,
+                title: 'Заказ возвращён на доработку',
+                body: order.comment ?? '',
+                cta: 'Открыть заказ',
+                onTap: openOrder,
+              ),
+            ],
+            if (bundle.alerts.isNotEmpty) const SectionLabel('Риск дефицита'),
+            for (final l in bundle.alerts) ...[
+              _Notice(
+                color: Qc.critical,
+                bg: Qc.criticalBg,
+                icon: Icons.warning_amber_rounded,
+                title: alertTitle(l),
+                body: l.name,
+                cta: 'Открыть артикул',
+                onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, l)),
+              ),
+              const SizedBox(height: 10),
+            ],
+            if (bundle.kpis.inboundSku > 0) ...[
+              const SectionLabel('Поставки'),
+              _Notice(
+                color: Qc.inkSecondary,
+                bg: Qc.card,
+                icon: Icons.local_shipping_outlined,
+                title: 'В пути ${fmtQty(bundle.kpis.inboundSku)} SKU',
+                body: '${fmtQty(bundle.kpis.inboundQty)} ед. по выгрузке ${bundle.asOfLabel}',
+              ),
+            ],
           ],
-          const SectionLabel('Риск дефицита'),
-          for (final l in bundle.alerts) ...[
-            _Notice(
-              color: Qc.critical,
-              bg: Qc.criticalBg,
-              icon: Icons.warning_amber_rounded,
-              title: l.stockoutNow || l.daysLeft == 0
-                  ? '${l.article}: нет на складе, поставка ~$leadDays дн.'
-                  : '${l.article} закончится через ${l.daysLeft} дн., поставка ~$leadDays дн.',
-              body: l.name,
-              cta: 'Открыть артикул',
-              onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, l)),
-            ),
-            const SizedBox(height: 10),
-          ],
-          if (bundle.inbound.isNotEmpty) const SectionLabel('Поставки'),
-          for (final i in bundle.inbound) ...[
-            _Notice(
-              color: Qc.inkSecondary,
-              bg: Qc.card,
-              icon: Icons.local_shipping_outlined,
-              title: i.eta,
-              body: '${fmtQty(i.positions)} позиций из заказа · ${fmtQty(i.qty)} ед.',
-            ),
-            const SizedBox(height: 10),
-          ],
-        ],
+        ),
       ),
     );
   }
 }
+
 
 class _Notice extends StatelessWidget {
   const _Notice({

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/format.dart';
 import '../data/models.dart';
 import '../data/providers.dart';
+import '../data/repository.dart';
 import '../theme/tokens.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -49,7 +50,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _thinking = true;
     });
     _toBottom();
-    final answer = await ref.read(repositoryProvider).ask(widget.bundle, widget.line, q);
+    String answer;
+    try {
+      answer = await ref.read(repositoryProvider).ask(widget.line.code, q);
+    } on ApiException catch (e) {
+      answer = e.message;
+    }
     if (!mounted) return;
     setState(() {
       _messages.add(_Msg(answer, mine: false));
@@ -138,7 +144,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 tooltip: 'Голосом',
                 icon: const Icon(Icons.graphic_eq, color: Qc.inkSecondary),
                 onPressed: () => ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('Голосовой ввод подключим вместе с API'))),
+                    .showSnackBar(const SnackBar(content: Text('Голосовой ввод пока не поддерживается'))),
               ),
               IconButton.filled(
                 icon: const Icon(Icons.arrow_upward),

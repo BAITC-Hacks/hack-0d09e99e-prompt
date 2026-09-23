@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../data/explain.dart';
 import '../data/format.dart';
 import '../data/models.dart';
 import '../data/providers.dart';
@@ -16,119 +15,151 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(roleProvider);
-    final order = ref.watch(orderProvider);
+    final user = ref.watch(authProvider)!;
+    final order = ref.watch(orderProvider).value;
     final tabs = ref.read(tabProvider.notifier);
+    final director = user.role == UserRole.director;
     final firstAlert = bundle.alerts.isNotEmpty ? bundle.alerts.first : null;
 
-    final (orderTitle, orderHint, orderColor) = switch (order.status) {
+    final (orderTitle, orderHint, orderColor) = switch (order?.status) {
+      null => ('Загружаю статус заказа…', '', Qc.inkSecondary),
       OrderStatus.pendingApproval => (
-          role == Role.director ? '1 заказ ждёт вашего утверждения' : 'Заказ ждёт утверждения руководителя',
-          'IEK · от ${order.sentBy}, ${ddmm(order.sentAt)} ${hhmm(order.sentAt)}',
+          director ? '1 заказ ждёт вашего утверждения' : 'Заказ ждёт утверждения руководителя',
+          '${bundle.supplier} · от ${order!.sentBy ?? '—'}${order.sentAt != null ? ', ${ddmm(order.sentAt!)} ${hhmm(order.sentAt!)}' : ''}',
           Qc.accent,
         ),
-      OrderStatus.approved => ('Заказ IEK утверждён', 'Менеджер может выгрузить его в 1С на сайте', Qc.safe),
-      OrderStatus.returned => ('Заказ IEK на доработке', order.comment ?? '', Qc.critical),
-      OrderStatus.draft => ('Заказ IEK в черновике', 'Менеджер ещё считает', Qc.inkSecondary),
+      OrderStatus.approved => (
+          'Заказ ${bundle.supplier} утверждён',
+          'Утвердил ${order!.decidedBy ?? '—'}. Выгрузка в 1С — на сайте',
+          Qc.safe,
+        ),
+      OrderStatus.returned => ('Заказ ${bundle.supplier} на доработке', order!.comment ?? '', Qc.critical),
+      OrderStatus.draft => (
+          'Заказ ${bundle.supplier} в черновике',
+          director ? 'Менеджер ещё не отправил на согласование' : 'Отправьте его на согласование',
+          Qc.inkSecondary,
+        ),
     };
 
+    final feed = <_FeedRow>[
+      if (order?.decidedAt != null)
+        _FeedRow(
+          time: hhmm(order!.decidedAt!),
+          text: order.status == OrderStatus.returned
+              ? 'Заказ возвращён: ${order.comment ?? ''} · ${order.decidedBy ?? ''}'
+              : 'Заказ ${order.status.label.toLowerCase()} · ${order.decidedBy ?? ''}',
+          color: order.status == OrderStatus.returned ? Qc.critical : Qc.safe,
+          onTap: () => tabs.go(1),
+        ),
+      if (order?.sentAt != null && order!.status != OrderStatus.draft)
+        _FeedRow(
+          time: hhmm(order.sentAt!),
+          text: 'Заказ ${bundle.supplier} отправлен на согласование · ${order.sentBy ?? ''}',
+          color: Qc.accent,
+          onTap: () => tabs.go(1),
+        ),
+      if (firstAlert != null)
+        _FeedRow(
+          time: '',
+          text: '${firstAlert.article}: остаток ${fmtQty(firstAlert.stock)} ${firstAlert.unit}'
+              '${firstAlert.inTransit > 0 ? ', в пути ${fmtQty(firstAlert.inTransit)}' : ', в пути нет'}',
+          color: Qc.critical,
+          onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, firstAlert)),
+        ),
+      _FeedRow(
+        time: '',
+        text: '${fmtQty(bundle.kpis.deficit)} SKU с нулевым остатком',
+        color: Qc.inkMuted,
+      ),
+    ];
+
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Row(children: [
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: Qc.primary, borderRadius: BorderRadius.circular(10)),
-              child: const Text('Q', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
-            ),
-            const SizedBox(width: 10),
-            const Text('Qor', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Qc.ink)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Pill(label: '${role.title} · ${role.person}', fg: Qc.inkSecondary, bg: Qc.card, border: Qc.line, dot: false),
+      child: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(bundleProvider);
+          await ref.read(orderProvider.notifier).refresh();
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            Row(children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: Qc.primary, borderRadius: BorderRadius.circular(10)),
+                child: const Text('Q', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
               ),
-            ),
-          ]),
-          const SizedBox(height: 18),
-          Text(ruDate(DateTime.now()),
-              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Qc.ink, height: 1.1)),
-          const SizedBox(height: 4),
-          Text('${bundle.warehouse} · ${bundle.supplier} · данные 1С на ${ddmm(bundle.asOf)}.${bundle.asOf.year}',
-              style: const TextStyle(color: Qc.inkSecondary)),
-          const SizedBox(height: 18),
-          _BigCard(
-            icon: Icons.warning_amber_rounded,
-            color: Qc.critical,
-            bg: Qc.criticalBg,
-            border: Qc.criticalBorder,
-            value: fmtQty(bundle.runsOutBeforeDelivery),
-            title: 'артикулов закончатся раньше поставки',
-            hint: 'Остатка меньше, чем на $leadDays дн. — срок поставки IEK',
-            onTap: () {
-              ref.read(urgencyFilterProvider.notifier).set(Urgency.critical);
-              tabs.go(1);
-            },
-          ),
-          const SizedBox(height: 12),
-          _BigCard(
-            icon: Icons.fact_check_outlined,
-            color: orderColor,
-            bg: Qc.card,
-            border: orderColor.withValues(alpha: 0.35),
-            title: orderTitle,
-            hint: orderHint,
-            onTap: () {
-              ref.read(urgencyFilterProvider.notifier).set(null);
-              tabs.go(1);
-            },
-          ),
-          const SizedBox(height: 12),
-          _BigCard(
-            icon: Icons.inventory_2_outlined,
-            color: Qc.ink,
-            bg: Qc.card,
-            border: Qc.line,
-            value: fmtQty(bundle.kpis.toOrder),
-            title: 'позиций в заказе IEK',
-            hint: '${fmtQty(bundle.kpis.inboundSku)} SKU уже в пути · ${fmtQty(bundle.kpis.inboundQty)} ед.',
-            onTap: () => tabs.go(1),
-          ),
-          const SectionLabel('Сегодня'),
-          QCard(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Column(children: [
-              if (firstAlert != null)
-                _FeedRow(
-                  time: '13:04',
-                  text: '${firstAlert.article}: остаток ${fmtQty(firstAlert.stock)} ${firstAlert.unit}'
-                      '${firstAlert.inTransit > 0 ? ', в пути ${fmtQty(firstAlert.inTransit)}' : ', в пути нет'}',
-                  color: Qc.critical,
-                  onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, firstAlert)),
+              const SizedBox(width: 10),
+              const Text('Qor', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Qc.ink)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Pill(label: '${user.title} · ${user.name}', fg: Qc.inkSecondary, bg: Qc.card, border: Qc.line, dot: false),
                 ),
-              _FeedRow(
-                time: hhmm(order.sentAt),
-                text: 'Заказ IEK отправлен на согласование · ${order.sentBy}',
-                color: Qc.accent,
-                onTap: () => tabs.go(1),
-              ),
-              _FeedRow(
-                time: '09:10',
-                text: '${fmtQty(bundle.kpis.deficit)} SKU с пустым остатком в сентябре',
-                color: Qc.inkMuted,
-                last: true,
               ),
             ]),
-          ),
-        ],
+            const SizedBox(height: 18),
+            Text(ruDate(DateTime.now()),
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Qc.ink, height: 1.1)),
+            const SizedBox(height: 4),
+            Text('${bundle.warehouse} · ${bundle.supplier} · выгрузка 1С ${bundle.asOfLabel}',
+                style: const TextStyle(color: Qc.inkSecondary)),
+            const SizedBox(height: 18),
+            _BigCard(
+              icon: Icons.warning_amber_rounded,
+              color: Qc.critical,
+              bg: Qc.criticalBg,
+              border: Qc.criticalBorder,
+              value: fmtQty(bundle.kpis.critical),
+              title: 'позиций под риском дефицита',
+              hint: 'Остаток и поставки покрывают меньше половины прогноза на месяц',
+              onTap: () {
+                ref.read(urgencyFilterProvider.notifier).set(Urgency.critical);
+                tabs.go(1);
+              },
+            ),
+            const SizedBox(height: 12),
+            _BigCard(
+              icon: Icons.fact_check_outlined,
+              color: orderColor,
+              bg: Qc.card,
+              border: orderColor.withValues(alpha: 0.35),
+              title: orderTitle,
+              hint: orderHint,
+              onTap: () {
+                ref.read(urgencyFilterProvider.notifier).set(null);
+                tabs.go(1);
+              },
+            ),
+            const SizedBox(height: 12),
+            _BigCard(
+              icon: Icons.inventory_2_outlined,
+              color: Qc.ink,
+              bg: Qc.card,
+              border: Qc.line,
+              value: fmtQty(bundle.kpis.toOrder),
+              title: 'позиций в заказе ${bundle.supplier}',
+              hint: '${fmtQty(bundle.kpis.inboundSku)} SKU уже в пути · ${fmtQty(bundle.kpis.inboundQty)} ед.',
+              onTap: () => tabs.go(1),
+            ),
+            const SectionLabel('Сегодня'),
+            QCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Column(children: [
+                for (var i = 0; i < feed.length; i++)
+                  feed[i].copyWith(last: i == feed.length - 1),
+              ]),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
 
 class _BigCard extends StatelessWidget {
   const _BigCard({
@@ -193,6 +224,9 @@ class _FeedRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool last;
 
+  _FeedRow copyWith({required bool last}) =>
+      _FeedRow(time: time, text: text, color: color, onTap: onTap, last: last);
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -201,7 +235,7 @@ class _FeedRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(border: last ? null : const Border(bottom: BorderSide(color: Qc.line))),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(
+          if (time.isNotEmpty) SizedBox(
             width: 48,
             child: Text(time,
                 style: const TextStyle(fontSize: 13, color: Qc.inkMuted, fontFeatures: [FontFeature.tabularFigures()])),

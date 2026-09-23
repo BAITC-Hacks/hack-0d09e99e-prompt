@@ -16,78 +16,93 @@ class OrderScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final order = ref.watch(orderProvider);
+    final order = ref.watch(orderProvider).value;
     final filter = ref.watch(urgencyFilterProvider);
     final lines = filter == null ? bundle.sortedLines : bundle.sortedLines.where((l) => l.urgency == filter).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Заказ ${bundle.supplier}'),
-        actions: [Padding(padding: const EdgeInsets.only(right: 16), child: OrderStatusChip(order.status))],
+        actions: [
+          if (order != null) Padding(padding: const EdgeInsets.only(right: 16), child: OrderStatusChip(order.status)),
+        ],
       ),
       bottomNavigationBar: _ApprovalBar(bundle: bundle),
-      body: CustomScrollView(slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          sliver: SliverList.list(children: [
-            Text(
-              'от ${order.sentBy} · ${ddmm(order.sentAt)} ${hhmm(order.sentAt)} · склад ${bundle.warehouse} · '
-              '${fmtQty(bundle.lines.length)} позиций · горизонт ${bundle.horizonWeeks} нед',
-              style: const TextStyle(color: Qc.inkSecondary, height: 1.4),
-            ),
-            if (order.status == OrderStatus.returned) ...[
-              const SizedBox(height: 12),
-              _Banner(
-                icon: Icons.undo,
-                color: Qc.critical,
-                bg: Qc.criticalBg,
-                title: 'Возвращён на доработку',
-                text: order.comment ?? '',
+      body: RefreshIndicator(
+        onRefresh: () => ref.read(orderProvider.notifier).refresh(),
+        child: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            sliver: SliverList.list(children: [
+              Text(
+                [
+                  if (order?.sentBy != null) 'от ${order!.sentBy}',
+                  if (order?.sentAt != null) '${ddmm(order!.sentAt!)} ${hhmm(order.sentAt!)}',
+                  'склад ${bundle.warehouse}',
+                  '${fmtQty(bundle.lines.length)} позиций',
+                  'выгрузка ${bundle.asOfLabel}',
+                ].join(' · '),
+                style: const TextStyle(color: Qc.inkSecondary, height: 1.4),
               ),
-            ],
-            if (order.status == OrderStatus.approved) ...[
-              const SizedBox(height: 12),
-              _Banner(
-                icon: Icons.check_circle,
-                color: Qc.safe,
-                bg: Qc.safeBg,
-                title: 'Утверждено${order.decidedAt != null ? ' в ${hhmm(order.decidedAt!)}' : ''}',
-                text: '${order.sentBy} может выгрузить заказ в 1С на сайте. Поставщику ничего не отправлено.',
-              ),
-            ],
-            const SizedBox(height: 14),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                _FilterChip(label: 'Все ${fmtQty(bundle.lines.length)}', selected: filter == null, onTap: () => ref.read(urgencyFilterProvider.notifier).set(null)),
-                for (final u in Urgency.values)
+              if (order?.status == OrderStatus.returned) ...[
+                const SizedBox(height: 12),
+                _Banner(
+                  icon: Icons.undo,
+                  color: Qc.critical,
+                  bg: Qc.criticalBg,
+                  title: 'Возвращён на доработку${order!.decidedBy != null ? ' · ${order.decidedBy}' : ''}',
+                  text: order.comment ?? '',
+                ),
+              ],
+              if (order?.status == OrderStatus.approved) ...[
+                const SizedBox(height: 12),
+                _Banner(
+                  icon: Icons.check_circle,
+                  color: Qc.safe,
+                  bg: Qc.safeBg,
+                  title: 'Утверждено${order!.decidedAt != null ? ' в ${hhmm(order.decidedAt!)}' : ''}'
+                      '${order.decidedBy != null ? ' · ${order.decidedBy}' : ''}',
+                  text: 'Менеджер выгружает заказ в 1С на сайте. Поставщику ничего не отправлено.',
+                ),
+              ],
+              const SizedBox(height: 14),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
                   _FilterChip(
-                    label: '${u.label} ${fmtQty(bundle.count(u))}',
-                    urgency: u,
-                    selected: filter == u,
-                    onTap: () => ref.read(urgencyFilterProvider.notifier).set(u),
+                    label: 'Все ${fmtQty(bundle.lines.length)}',
+                    selected: filter == null,
+                    onTap: () => ref.read(urgencyFilterProvider.notifier).set(null),
                   ),
-              ]),
-            ),
-            const SizedBox(height: 12),
-          ]),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          sliver: SliverList.separated(
-            itemCount: lines.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) => PositionCard(
-              bundle: bundle,
-              line: lines[i],
-              onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, lines[i])),
+                  for (final u in Urgency.values)
+                    _FilterChip(
+                      label: '${u.label} ${fmtQty(bundle.count(u))}',
+                      urgency: u,
+                      selected: filter == u,
+                      onTap: () => ref.read(urgencyFilterProvider.notifier).set(u),
+                    ),
+                ]),
+              ),
+              const SizedBox(height: 12),
+            ]),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            sliver: SliverList.separated(
+              itemCount: lines.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, i) => PositionCard(
+                line: lines[i],
+                onTap: () => Navigator.of(context).push(SkuScreen.route(bundle, lines[i])),
+              ),
             ),
           ),
-        ),
-      ]),
+        ]),
+      ),
     );
   }
 }
+
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({required this.label, required this.selected, required this.onTap, this.urgency});
@@ -158,9 +173,18 @@ class _ApprovalBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final order = ref.watch(orderProvider);
-    final role = ref.watch(roleProvider);
-    final canDecide = role == Role.director && order.status == OrderStatus.pendingApproval && !order.busy;
+    final status = ref.watch(orderProvider).value?.status;
+    final user = ref.watch(authProvider);
+    final busy = ref.watch(orderBusyProvider);
+    final director = user?.role == UserRole.director;
+    final canDecide = director && status == OrderStatus.pendingApproval && !busy;
+    final canSubmit = !director && (status == OrderStatus.draft || status == OrderStatus.returned) && !busy;
+
+    final hint = switch (status) {
+      OrderStatus.pendingApproval when !director => 'Утверждает руководитель. Правки — на сайте.',
+      OrderStatus.draft || OrderStatus.returned when director => 'Ждём, пока менеджер отправит заказ.',
+      _ => null,
+    };
 
     return Container(
       decoration: const BoxDecoration(color: Qc.card, border: Border(top: BorderSide(color: Qc.line))),
@@ -172,46 +196,67 @@ class _ApprovalBar extends ConsumerWidget {
             const Text('Итого', style: TextStyle(color: Qc.inkSecondary)),
             const SizedBox(width: 12),
             Expanded(
-              child: Text('${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично',
-                  textAlign: TextAlign.right,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700, color: Qc.ink)),
+              child: Text(
+                '${fmtQty(bundle.lines.length)} позиций · ${fmtQty(bundle.count(Urgency.critical))} критично',
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700, color: Qc.ink),
+              ),
             ),
           ]),
-          if (role != Role.director && order.status == OrderStatus.pendingApproval) ...[
+          if (hint != null) ...[
             const SizedBox(height: 6),
-            const Text('Утверждает руководитель. Правки — на сайте.',
-                style: TextStyle(fontSize: 12, color: Qc.inkMuted)),
+            Text(hint, style: const TextStyle(fontSize: 12, color: Qc.inkMuted)),
           ],
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: canDecide ? () => _returnSheet(context, ref) : null,
-                child: const Text('Вернуть'),
+          if (director)
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: canDecide ? () => _returnSheet(context, ref) : null,
+                  child: const Text('Вернуть'),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 2,
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: FilledButton(
+                  onPressed: canDecide ? () => _confirmApprove(context, ref) : null,
+                  child: busy ? const _Spinner() : const Text('Утвердить'),
+                ),
+              ),
+            ])
+          else
+            SizedBox(
+              width: double.infinity,
               child: FilledButton(
-                onPressed: canDecide ? () => _confirmApprove(context, ref) : null,
-                child: order.busy
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Утвердить'),
+                onPressed: canSubmit ? () => _submit(context, ref) : null,
+                child: busy ? const _Spinner() : const Text('Отправить на согласование'),
               ),
             ),
-          ]),
         ]),
       ),
     );
+  }
+
+  void _report(BuildContext context, String? error, String success) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error ?? success),
+      backgroundColor: error == null ? null : Qc.critical,
+    ));
+  }
+
+  Future<void> _submit(BuildContext context, WidgetRef ref) async {
+    final error = await ref.read(orderProvider.notifier).submit();
+    if (context.mounted) _report(context, error, 'Отправлено руководителю');
   }
 
   Future<void> _confirmApprove(BuildContext context, WidgetRef ref) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Утвердить заказ IEK?'),
+        title: Text('Утвердить заказ ${bundle.supplier}?'),
         content: const Text('Заказ не уйдёт поставщику — меняется только статус в системе, '
             'а выгрузку в 1С делает менеджер на сайте.'),
         actions: [
@@ -221,11 +266,8 @@ class _ApprovalBar extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
-    await ref.read(orderProvider.notifier).approve();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Утверждено. ${ref.read(orderProvider).sentBy} может выгрузить в 1С')),
-    );
+    final error = await ref.read(orderProvider.notifier).approve();
+    if (context.mounted) _report(context, error, 'Утверждено. Менеджер может выгрузить в 1С');
   }
 
   Future<void> _returnSheet(BuildContext context, WidgetRef ref) async {
@@ -270,6 +312,15 @@ class _ApprovalBar extends ConsumerWidget {
     );
     controller.dispose();
     if (comment == null) return;
-    await ref.read(orderProvider.notifier).sendBack(comment);
+    final error = await ref.read(orderProvider.notifier).sendBack(comment);
+    if (context.mounted) _report(context, error, 'Возвращено менеджеру');
   }
+}
+
+class _Spinner extends StatelessWidget {
+  const _Spinner();
+
+  @override
+  Widget build(BuildContext context) =>
+      const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white));
 }
