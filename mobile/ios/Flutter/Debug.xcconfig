@@ -1,0 +1,4 @@
+#include "Generated.xcconfig"
+
+// macOS 27 lipo rejects multi-arch -verify_arch; Apple Silicon simulators only need arm64.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64
