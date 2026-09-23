@@ -35,7 +35,7 @@ flutter test         # расчётные тексты + прогон всех �
 | `POST /v1/orders/iek-current/approve` | director | | статус `approved` |
 | `POST /v1/orders/iek-current/return` | director | `{ "comment" }` | статус `returned` |
 | `POST /v1/sku/{code}/ask` | все | `{ "question" }` | `{ code, answer }` |
-| `GET /v1/sku/{code}/series` | все | | `{ code, points }` — пока пустой ряд, на карточке «истории в API пока нет» |
+| `GET /v1/sku/{code}/series` | все | | `{ code, points: [{ label, value }] }` — продажи за последние 12 месяцев |
 
 404 на бандле значит, что расчёт ещё не записан в `backend/data/workspace.json` (загрузка на сайте) — приложение показывает «Выгрузки 1С ещё нет».
 

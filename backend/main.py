@@ -149,12 +149,15 @@ def ask_sku(code: str, body: AskIn, _: dict = Depends(current_user)) -> dict:
 
 @app.get("/v1/sku/{code}/series")
 def sku_series(code: str, _: dict = Depends(current_user)) -> dict:
-    """Monthly points for the mini chart. Empty until the engine stores per-SKU history."""
+    """Monthly sales for the mini chart, stored on the workspace as skuSeries."""
     data = _bundle()
     line = find_line(data, code)
     if line is None:
         raise HTTPException(status_code=404, detail="Артикул не найден в текущем заказе")
-    return {"code": line.get("code"), "points": []}
+    stored = data.get("skuSeries") or {}
+    sku = line.get("code")
+    points = stored.get(sku) or stored.get(line.get("article")) or []
+    return {"code": sku, "points": points}
 
 
 @app.post("/v1/workspace")

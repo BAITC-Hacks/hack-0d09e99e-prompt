@@ -124,6 +124,34 @@ def _risk(forecast: float, available: float) -> str:
     return "safe"
 
 
+_RU_MONTHS = ("янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+
+
+def monthly_series(frame: pd.DataFrame, codes: set[str], months: int = 12) -> dict[str, list[dict]]:
+    """Last months of positive sales for the mobile mini chart."""
+    if frame is None or frame.empty or not codes or "sales_positive" not in frame.columns:
+        return {}
+    wanted = frame[frame["sku"].astype(str).isin(codes)]
+    out: dict[str, list[dict]] = {}
+    for sku, group in wanted.groupby("sku", sort=False):
+        tail = (
+            group.groupby("month", as_index=False)["sales_positive"]
+            .sum()
+            .sort_values("month")
+            .tail(months)
+        )
+        points = []
+        for row in tail.itertuples(index=False):
+            month = pd.Timestamp(row.month)
+            points.append({
+                "label": f"{_RU_MONTHS[month.month - 1]} {month.year % 100:02d}",
+                "value": round(_num(row.sales_positive), 1),
+            })
+        if points:
+            out[str(sku)] = points
+    return out
+
+
 def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
     data_dir = Path(data_dir)
     if not data_dir.is_dir():
@@ -276,6 +304,7 @@ def build_workspace(data_dir: Path, supplier: str = "IEK") -> dict:
         },
         "categories": categories,
         "series": [],
+        "skuSeries": monthly_series(history, {item["code"] for item in lines}),
         "lines": to_order,
         "alerts": alerts,
         "anomalies": [],
