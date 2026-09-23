@@ -19,6 +19,7 @@ data/uploads/
 *.pem
 *.p8
 *.key
+*.venv/
 service-account*.json
 google-services.json
 GoogleService-Info.plist
